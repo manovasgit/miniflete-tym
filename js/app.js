@@ -123,9 +123,9 @@ const App = (() => {
     const recent = proposals.slice(0, 5);
 
     return `
-    <div class="view-pad">
+    <div class="home-view">
       <div class="hero-banner">
-        <img src="icons/logo.png" alt="Miniflete TyM" style="width:80px;height:80px;object-fit:contain;border-radius:50%;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto">
+        <img src="icons/logo.png" alt="Miniflete TyM" style="width:120px;height:120px;object-fit:contain;border-radius:50%;margin-bottom:16px;display:block;margin-left:auto;margin-right:auto;box-shadow:0 4px 16px rgba(0,0,0,.3)">
         <h2>Generador de Propuestas</h2>
         <p>Crea propuestas profesionales en segundos</p>
         <button class="hero-btn" data-action="new-proposal">+ Nueva Propuesta</button>

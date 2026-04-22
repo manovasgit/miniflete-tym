@@ -190,28 +190,36 @@ select {
 /* ── HOME ─────────────────────────────────────────────────── */
 .view-pad { padding: 16px; }
 
-.hero-banner {
-  background: linear-gradient(135deg, var(--red-dark), var(--red));
-  border-radius: var(--radius); padding: 26px 20px;
-  color: var(--white); text-align: center; margin-bottom: 16px;
-}
-.hero-banner h2 { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
-.hero-banner p  { font-size: 17px; opacity: .88; margin-bottom: 20px; }
-.hero-btn {
-  background: var(--white); color: var(--red-dark);
-  font-weight: 800; padding: 16px 32px; border-radius: 14px;
-  font-size: 18px; box-shadow: 0 3px 12px rgba(0,0,0,.2);
-  display: inline-flex; align-items: center; min-height: 56px;
+.home-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
 }
 
-.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.hero-banner {
+  background: linear-gradient(135deg, var(--red-dark), var(--red));
+  border-radius: var(--radius); padding: 36px 24px;
+  color: var(--white); text-align: center; margin-bottom: 18px;
+}
+.hero-banner h2 { font-size: 28px; font-weight: 800; margin-bottom: 10px; }
+.hero-banner p  { font-size: 19px; opacity: .88; margin-bottom: 28px; }
+.hero-btn {
+  background: var(--white); color: var(--red-dark);
+  font-weight: 800; padding: 20px 32px; border-radius: 14px;
+  font-size: 20px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; min-height: 68px;
+}
+
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
 .stat-card {
   background: var(--surface); border-radius: var(--radius);
-  padding: 20px 12px; text-align: center;
-  box-shadow: 0 1px 5px rgba(0,0,0,.07);
+  padding: 28px 16px; text-align: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,.09);
 }
-.stat-num   { font-size: 36px; font-weight: 800; color: var(--red-dark); line-height: 1; }
-.stat-label { font-size: 15px; color: var(--text-sub); margin-top: 6px; font-weight: 500; }
+.stat-num   { font-size: 44px; font-weight: 800; color: var(--red-dark); line-height: 1; }
+.stat-label { font-size: 18px; color: var(--text-sub); margin-top: 8px; font-weight: 600; }
 
 .section-title {
   font-size: 14px; font-weight: 700; color: var(--text-sub);
