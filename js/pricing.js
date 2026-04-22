@@ -45,10 +45,16 @@ const Pricing = (() => {
 
     // Vehicle
     if (d.vehicleType === 'utilitario') {
-      const cost = d.hasElevator ? 47500 : 37500;
-      const label = d.hasElevator
-        ? 'Utilitario con ascensor/electrodomésticos'
-        : 'Utilitario (Fiorino/Berlingo) – CABA';
+      const withElevator = ['ascensor', 'ambos'].includes(d.elevatorMode) || d.hasElevator;
+      const cost = withElevator ? 47500 : 37500;
+      const ELEV_LABELS = {
+        traslado: 'Utilitario – Solo traslado',
+        ascensor: 'Utilitario con ascensor',
+        escalera: 'Utilitario con escalera',
+        ambos: 'Utilitario con ascensor y escalera',
+        desconocido: 'Utilitario (acceso a confirmar)',
+      };
+      const label = ELEV_LABELS[d.elevatorMode] || (d.hasElevator ? 'Utilitario con ascensor' : 'Utilitario – Solo traslado');
       breakdown.push({ label, amount: cost });
       total += cost;
     } else if (d.vehicleType === 'camioneta') {

@@ -58,9 +58,10 @@ const App = (() => {
       // Step 2 – Servicio
       serviceType: '', originZone: '', destZone: '', frequency: 'Puntual', inventory: '',
       // Step 3 – Precio
-      vehicleType: 'utilitario', hasElevator: false, camionetaPrice: '',
+      vehicleType: 'utilitario', hasElevator: false, elevatorMode: 'traslado', camionetaPrice: '',
       serviceMode: 'traslado', hours: 2, peones: 2,
       floorOrigin: 0, floorDest: 0, looseItems: 0,
+      originArea: '', destArea: '',
       // Step 4 – Final
       basePrice: 0, finalPrice: 0, priceBreakdown: [],
       notes: '', status: 'Borrador',
@@ -288,8 +289,9 @@ const App = (() => {
         <div class="detail-row"><span class="dl">Origen</span><span class="dv">${p.originZone||'-'}</span></div>
         <div class="detail-row"><span class="dl">Destino</span><span class="dv">${p.destZone||'-'}</span></div>
         <div class="detail-row"><span class="dl">Vehículo</span><span class="dv">${Pricing.VEHICLE_LABELS[p.vehicleType]||'-'}</span></div>
-        <div class="detail-row"><span class="dl">Modalidad</span><span class="dv">${p.serviceMode === 'peones' ? 'Con peones' : 'Solo traslado'}</span></div>
+        <div class="detail-row"><span class="dl">Modalidad</span><span class="dv">${{traslado:'Solo traslado',peones:'Con peones',chofer:'Colaboración del chofer'}[p.serviceMode]||'Solo traslado'}</span></div>
         ${p.serviceMode === 'peones' ? `<div class="detail-row"><span class="dl">Peones / hs</span><span class="dv">${p.peones} peones · ${p.hours} horas</span></div>` : ''}
+        ${p.serviceMode === 'chofer' ? `<div class="detail-row"><span class="dl">Horas</span><span class="dv">${p.hours} horas</span></div>` : ''}
       </div>
 
       ${p.inventory ? `
@@ -433,15 +435,33 @@ const App = (() => {
         ${Pricing.FREQUENCIES.map(f => `<option${d.frequency === f ? ' selected' : ''}>${f}</option>`).join('')}
       </select>
     </div>
-    <div class="field-row">
-      <div class="field">
-        <label>Zona de origen <span class="req">*</span></label>
-        <input type="text" id="f-originZone" value="${esc(d.originZone)}" placeholder="Ej: Palermo">
-      </div>
-      <div class="field">
-        <label>Zona de destino <span class="req">*</span></label>
-        <input type="text" id="f-destZone" value="${esc(d.destZone)}" placeholder="Ej: Belgrano">
-      </div>
+    <div class="field">
+      <label>Zona de origen <span class="req">*</span></label>
+      <input type="text" id="f-originZone" value="${esc(d.originZone)}" placeholder="Ej: Palermo">
+    </div>
+    <div class="field">
+      <label>Área de origen</label>
+      <select id="f-originArea">
+        <option value="">Seleccioná el área...</option>
+        <option value="CABA"${d.originArea==='CABA'?' selected':''}>CABA</option>
+        <option value="Zona Norte"${d.originArea==='Zona Norte'?' selected':''}>Zona Norte</option>
+        <option value="Zona Sur"${d.originArea==='Zona Sur'?' selected':''}>Zona Sur</option>
+        <option value="Zona Oeste"${d.originArea==='Zona Oeste'?' selected':''}>Zona Oeste</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Zona de destino <span class="req">*</span></label>
+      <input type="text" id="f-destZone" value="${esc(d.destZone)}" placeholder="Ej: Belgrano">
+    </div>
+    <div class="field">
+      <label>Área de destino</label>
+      <select id="f-destArea">
+        <option value="">Seleccioná el área...</option>
+        <option value="CABA"${d.destArea==='CABA'?' selected':''}>CABA</option>
+        <option value="Zona Norte"${d.destArea==='Zona Norte'?' selected':''}>Zona Norte</option>
+        <option value="Zona Sur"${d.destArea==='Zona Sur'?' selected':''}>Zona Sur</option>
+        <option value="Zona Oeste"${d.destArea==='Zona Oeste'?' selected':''}>Zona Oeste</option>
+      </select>
     </div>
     <div class="field">
       <label>Inventario / Descripción del traslado</label>
@@ -455,6 +475,7 @@ const App = (() => {
     const isCamion = d.vehicleType === 'camion';
     const isCamioneta = d.vehicleType === 'camioneta';
     const withPeones = d.serviceMode === 'peones';
+    const isChofer = d.serviceMode === 'chofer';
 
     return `
     <div class="section-divider">Vehículo</div>
@@ -468,11 +489,14 @@ const App = (() => {
     </div>
 
     <div class="field${isUtilitario ? '' : ' hidden'}" id="field-elevator">
-      <div class="field-inline">
-        <input type="checkbox" id="f-hasElevator"${d.hasElevator ? ' checked' : ''}>
-        <label for="f-hasElevator">Incluye ascensor / electrodomésticos (+precio)</label>
-      </div>
-      <div class="hint">Sin elev.: $35.000–$40.000 · Con elev.: $45.000–$50.000</div>
+      <label>Acceso en el traslado</label>
+      <select id="f-elevatorMode">
+        <option value="traslado"${(d.elevatorMode||'traslado')==='traslado'?' selected':''}>Solo traslado</option>
+        <option value="ascensor"${d.elevatorMode==='ascensor'?' selected':''}>Ascensor</option>
+        <option value="escalera"${d.elevatorMode==='escalera'?' selected':''}>Escalera</option>
+        <option value="ambos"${d.elevatorMode==='ambos'?' selected':''}>Ascensor y Escalera</option>
+        <option value="desconocido"${d.elevatorMode==='desconocido'?' selected':''}>Aún no lo sé</option>
+      </select>
     </div>
 
     <div class="field${isCamioneta ? '' : ' hidden'}" id="field-camioneta-price">
@@ -485,12 +509,13 @@ const App = (() => {
     <div class="field">
       <label>Modalidad de servicio</label>
       <select id="f-serviceMode">
-        <option value="traslado"${d.serviceMode === 'traslado' ? ' selected' : ''}>Solo traslado (sin peones)</option>
+        <option value="traslado"${d.serviceMode === 'traslado' ? ' selected' : ''}>Solo traslado</option>
         <option value="peones"${d.serviceMode === 'peones' ? ' selected' : ''}>Con peones</option>
+        <option value="chofer"${d.serviceMode === 'chofer' ? ' selected' : ''}>Colaboración del chofer</option>
       </select>
     </div>
 
-    <div class="${(withPeones || isCamion) ? '' : 'hidden'}" id="fields-hours">
+    <div class="${(withPeones || isCamion || isChofer) ? '' : 'hidden'}" id="fields-hours">
       <div class="field">
         <label>Horas estimadas <span class="req">*</span></label>
         <input type="number" id="f-hours" value="${d.hours || 2}" min="2" step="0.5" inputmode="decimal">
@@ -549,16 +574,6 @@ const App = (() => {
       <div class="amount">${Pricing.fmt(total)}</div>
       <div class="senia">Seña (30%): ${Pricing.fmt(Math.round(total * 0.3))}</div>
     </div>
-
-    ${breakdown.length ? `
-    <div class="section-title">Detalle del cálculo</div>
-    <div class="breakdown-list card">
-      ${breakdown.map(i => `
-      <div class="breakdown-item">
-        <span class="b-label">${i.label}</span>
-        <span class="b-amt">${Pricing.fmt(i.amount)}</span>
-      </div>`).join('')}
-    </div>` : ''}
 
     <div class="field">
       <label>Precio final ajustado</label>
@@ -752,11 +767,13 @@ const App = (() => {
       d.serviceType = v('f-serviceType');
       d.frequency   = v('f-frequency') || 'Puntual';
       d.originZone  = v('f-originZone').trim();
+      d.originArea  = v('f-originArea');
       d.destZone    = v('f-destZone').trim();
+      d.destArea    = v('f-destArea');
       d.inventory   = v('f-inventory').trim();
     } else if (state.formStep === 3) {
       d.vehicleType    = v('f-vehicleType');
-      d.hasElevator    = cb('f-hasElevator');
+      d.elevatorMode   = v('f-elevatorMode') || 'traslado';
       d.camionetaPrice = v('f-camionetaPrice');
       d.serviceMode    = v('f-serviceMode');
       d.hours          = parseFloat(v('f-hours')) || 2;
@@ -871,7 +888,7 @@ const App = (() => {
         const sm = smEl?.value;
         document.getElementById('field-elevator')?.classList.toggle('hidden', vt !== 'utilitario');
         document.getElementById('field-camioneta-price')?.classList.toggle('hidden', vt !== 'camioneta');
-        document.getElementById('fields-hours')?.classList.toggle('hidden', sm !== 'peones' && vt !== 'camion');
+        document.getElementById('fields-hours')?.classList.toggle('hidden', sm !== 'peones' && vt !== 'camion' && sm !== 'chofer');
         document.getElementById('fields-peones')?.classList.toggle('hidden', sm !== 'peones');
       };
       vtEl?.addEventListener('change', toggleStep3);
