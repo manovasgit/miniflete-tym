@@ -373,14 +373,18 @@ const App = (() => {
         ${indicators}
         <span class="step-label">${stepLabels[step - 1]} ${step}/${TOTAL_STEPS}</span>
       </div>
-      ${content}
-      <div class="btn-row mt-12">
-        ${step > 1 ? `<button class="btn btn-secondary" data-action="form-prev">← Anterior</button>` : ''}
-        ${step < TOTAL_STEPS
-          ? `<button class="btn btn-primary" data-action="form-next">Siguiente →</button>`
-          : `<button class="btn btn-primary" data-action="form-save">💾 Guardar propuesta</button>`}
+      <div class="form-fields">
+        ${content}
       </div>
-      ${step === TOTAL_STEPS ? `<button class="btn btn-success mt-8" style="width:100%" data-action="form-save-pdf">💾 Guardar y generar PDF</button>` : ''}
+      <div class="form-actions">
+        <div class="btn-row">
+          ${step > 1 ? `<button class="btn btn-secondary" data-action="form-prev">← Anterior</button>` : ''}
+          ${step < TOTAL_STEPS
+            ? `<button class="btn btn-primary" data-action="form-next">Siguiente →</button>`
+            : `<button class="btn btn-primary" data-action="form-save">💾 Guardar propuesta</button>`}
+        </div>
+        ${step === TOTAL_STEPS ? `<button class="btn btn-success mt-8" style="width:100%" data-action="form-save-pdf">💾 Guardar y generar PDF</button>` : ''}
+      </div>
     </div>`;
   }
 

@@ -265,43 +265,52 @@ select {
 
 /* ── FORM ─────────────────────────────────────────────────── */
 .form-wrap {
-  padding: 16px;
+  padding: 20px;
   flex: 1;
-  min-height: calc(100vh - var(--header-h) - var(--nav-h));
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+}
+
+.form-fields {
+  flex: 1;
+}
+
+.form-actions {
+  margin-top: auto;
+  padding-top: 20px;
 }
 
 .step-indicator {
-  display: flex; gap: 6px; margin-bottom: 24px; align-items: center;
+  display: flex; gap: 6px; margin-bottom: 28px; align-items: center;
 }
 .step {
-  flex: 1; height: 8px; border-radius: 4px;
+  flex: 1; height: 10px; border-radius: 5px;
   background: var(--border); transition: background .3s;
 }
 .step.done   { background: var(--red-dark); }
 .step.active { background: var(--red-soft); }
 .step-label {
-  font-size: 16px; color: var(--text-sub); font-weight: 600;
+  font-size: 17px; color: var(--text-sub); font-weight: 600;
   white-space: nowrap; margin-left: 8px;
 }
 
-.field { margin-bottom: 22px; }
+.field { margin-bottom: 28px; }
 .field label {
-  display: block; font-size: 17px; font-weight: 700;
-  color: var(--text); margin-bottom: 8px;
+  display: block; font-size: 18px; font-weight: 700;
+  color: var(--text); margin-bottom: 10px;
 }
 .field label .req { color: var(--red); margin-left: 2px; }
 .field .hint {
-  font-size: 15px; color: var(--text-sub); margin-top: 7px; line-height: 1.4;
+  font-size: 16px; color: var(--text-sub); margin-top: 8px; line-height: 1.4;
 }
 
 /* Una sola columna — más alto, más fácil de tocar */
-.field-row { display: flex; flex-direction: column; gap: 16px; }
+.field-row { display: flex; flex-direction: column; gap: 20px; }
 
-.field-inline { display: flex; align-items: center; gap: 16px; padding: 8px 0; }
+.field-inline { display: flex; align-items: center; gap: 16px; padding: 10px 0; }
 .field-inline input[type="checkbox"] {
-  width: 28px; height: 28px; flex: 0 0 28px;
+  width: 30px; height: 30px; flex: 0 0 30px;
   accent-color: var(--red-dark);
 }
 .field-inline label { margin: 0; font-size: 18px; font-weight: 500; line-height: 1.3; }
@@ -310,7 +319,7 @@ select {
   font-size: 14px; font-weight: 800; text-transform: uppercase;
   letter-spacing: .7px; color: var(--red-dark);
   border-bottom: 3px solid var(--red-dark);
-  padding-bottom: 7px; margin: 26px 0 18px;
+  padding-bottom: 8px; margin: 30px 0 22px;
 }
 
 /* ── PRICE DISPLAY ────────────────────────────────────────── */

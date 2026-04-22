@@ -1,4 +1,4 @@
-const CACHE = 'mftym-v1';
+const CACHE = 'mftym-v2';
 const ASSETS = [
   './', './index.html', './css/styles.css',
   './js/storage.js', './js/pricing.js', './js/pdf-generator.js', './js/app.js'
