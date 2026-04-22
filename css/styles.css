@@ -45,7 +45,7 @@ input, select, textarea {
   font-size: 18px;
   border: 2px solid var(--border);
   border-radius: 12px;
-  padding: 18px 18px;
+  padding: 0 18px;
   width: 100%;
   background: var(--white);
   color: var(--text);
@@ -53,8 +53,9 @@ input, select, textarea {
   transition: border-color .2s;
   -webkit-appearance: none;
   appearance: none;
-  min-height: 64px;
-  display: block;
+  height: 60px;
+  min-height: 60px;
+  line-height: 60px;
 }
 input:focus, select:focus, textarea:focus {
   border-color: var(--red);
@@ -62,8 +63,10 @@ input:focus, select:focus, textarea:focus {
 }
 textarea {
   resize: vertical;
+  height: auto;
   min-height: 110px;
   line-height: 1.5;
+  padding: 16px 18px;
 }
 select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
@@ -103,6 +106,8 @@ select {
   margin-top: var(--header-h);
   margin-bottom: var(--nav-h);
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── BOTTOM NAV ───────────────────────────────────────────── */
@@ -251,7 +256,13 @@ select {
 .action-btn:active { background: var(--bg); }
 
 /* ── FORM ─────────────────────────────────────────────────── */
-.form-wrap { padding: 16px; }
+.form-wrap {
+  padding: 16px;
+  flex: 1;
+  min-height: calc(100vh - var(--header-h) - var(--nav-h));
+  display: flex;
+  flex-direction: column;
+}
 
 .step-indicator {
   display: flex; gap: 6px; margin-bottom: 24px; align-items: center;
