@@ -789,13 +789,21 @@
   // IMPORTAR DESDE EMAIL
   // ════════════════════════════════════════════════════════════════════════
   function buildImportar() {
+    var unidadOpts = '<option value="">— Sin asignar —</option>'
+      + UNIDADES.map(function (u) {
+          return '<option value="' + u.id + '">' + esc(u.nombre) + '</option>';
+        }).join('');
+
     return '<div class="ov-header">'
       + '<button class="ov-back" id="btn-importar-close">‹</button>'
       + '<h2>Importar desde email</h2>'
       + '</div>'
       + '<div class="ov-body">'
       + '<p class="import-hint">Pegá el cuerpo del mail de confirmación de Forminator:</p>'
-      + '<div class="field"><textarea id="import-text" rows="10" placeholder="*DD-MM-AAAA*&#10;*HH:MM - HH:MM*&#10;*Nombre*&#10;..."></textarea></div>'
+      + '<div class="field"><textarea id="import-text" rows="8" placeholder="*DD-MM-AAAA*&#10;*HH:MM - HH:MM*&#10;*Nombre*&#10;..."></textarea></div>'
+      + '<div class="field"><label>Unidad asignada</label>'
+        + '<select id="import-unidad">' + unidadOpts + '</select>'
+      + '</div>'
       + '<div class="det-actions"><button class="btn-primary" id="btn-importar-ok">Importar trabajo</button></div>'
       + '</div>';
   }
@@ -806,12 +814,14 @@
 
     var okBtn = document.getElementById('btn-importar-ok');
     if (okBtn) okBtn.addEventListener('click', function () {
-      var text = document.getElementById('import-text') ? document.getElementById('import-text').value : '';
+      var text    = document.getElementById('import-text')   ? document.getElementById('import-text').value   : '';
+      var unidad  = document.getElementById('import-unidad') ? document.getElementById('import-unidad').value : '';
       if (!text.trim()) { showToast('Pegá el contenido del email'); return; }
       var job = parseEmailForminator(text);
       if (!job) { showToast('No se pudo leer el email. Verificá el formato.'); return; }
       if (!job.nombre) { showToast('No se encontró el nombre del cliente'); return; }
-      job.id = generateId();
+      job.id     = generateId();
+      job.unidad = unidad || null;
       saveJob(job);
       S.fecha = job.fecha;
       closeOverlay();
