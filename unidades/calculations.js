@@ -1,144 +1,127 @@
-// ── Unit catalogue ─────────────────────────────────────────────────────────
-const UNITS = [
-  'Fiorella', 'Scott', 'Rodeo', 'Belgrano',
-  'Manolo', 'Eugenio', 'Juan Pablo', 'Luis', 'Tincho', 'Claudio',
+// Catálogo de unidades
+const UNIDADES = [
+  { id: 'fiorella',   nombre: 'Fiorella',   tipo: 'propio_pct',  pct: 66.7 },
+  { id: 'scott',      nombre: 'Scott',       tipo: 'propio_fijo' },
+  { id: 'rodeo',      nombre: 'Rodeo',       tipo: 'mitad' },
+  { id: 'belgrano',   nombre: 'Belgrano',    tipo: 'comision',    pct: 20 },
+  { id: 'manolo',     nombre: 'Manolo',      tipo: 'comision',    pct: 10 },
+  { id: 'eugenio',    nombre: 'Eugenio',     tipo: 'comision',    pct: 10 },
+  { id: 'juan_pablo', nombre: 'Juan Pablo',  tipo: 'comision',    pct: 10 },
+  { id: 'luis',       nombre: 'Luis',        tipo: 'comision',    pct: 10 },
+  { id: 'tincho',     nombre: 'Tincho',      tipo: 'comision',    pct: 10 },
+  { id: 'claudio',    nombre: 'Claudio',     tipo: 'comision',    pct: 10 },
 ];
 
-const UNIT_CONFIG = {
-  Fiorella:   { type: 'pct',   rate: 0.667, hasGastos: true  },
-  Scott:      { type: 'fijo',              hasGastos: true  },
-  Rodeo:      { type: 'mitad',             hasGastos: true  },
-  Belgrano:   { type: 'pct',   rate: 0.20, hasGastos: false },
-  Manolo:     { type: 'pct',   rate: 0.10, hasGastos: false },
-  Eugenio:    { type: 'pct',   rate: 0.10, hasGastos: false },
-  'Juan Pablo':{ type: 'pct', rate: 0.10, hasGastos: false },
-  Luis:       { type: 'pct',   rate: 0.10, hasGastos: false },
-  Tincho:     { type: 'pct',   rate: 0.10, hasGastos: false },
-  Claudio:    { type: 'pct',   rate: 0.10, hasGastos: false },
-};
-
-function unitHasGastos(unit) {
-  return UNIT_CONFIG[unit]?.hasGastos || false;
+function getUnidad(id) {
+  return UNIDADES.find(u => u.id === id) || null;
 }
 
-// ── Date helpers ───────────────────────────────────────────────────────────
-function getDayOfWeek(dateStr) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, m - 1, d).getDay(); // 0 Sun … 6 Sat
+// 0=Dom, 1=Lun, …, 6=Sáb
+function getDow(fechaStr) {
+  return new Date(fechaStr + 'T12:00:00').getDay();
 }
 
-function getScottSalary(dateStr) {
-  const dow = getDayOfWeek(dateStr);
-  if (dow === 0) return 0;      // domingo – no trabaja
-  if (dow === 6) return 50000;  // sábado
-  return 80000;                 // lunes a viernes
+function getSueldoScott(fechaStr) {
+  const dow = getDow(fechaStr);
+  if (dow === 0) return null;  // domingo — no trabaja
+  if (dow === 6) return 50000; // sábado
+  return 80000;                // lunes a viernes
 }
 
-// ── Core calculation ───────────────────────────────────────────────────────
-// Returns ganancia neta de Martín para un día completo de una unidad.
-function calcDayGanancia(unit, camionetaTotal, gastos, dateStr) {
-  const cfg = UNIT_CONFIG[unit];
-  if (!cfg) return 0;
+function isScottDomingo(fechaStr) {
+  return !!(fechaStr && getDow(fechaStr) === 0);
+}
 
-  gastos        = Number(gastos)        || 0;
-  camionetaTotal = Number(camionetaTotal) || 0;
-
-  switch (cfg.type) {
-    case 'pct':
-      return Math.round(camionetaTotal * cfg.rate) - gastos;
-
-    case 'fijo': {
-      const salary = getScottSalary(dateStr);
-      return camionetaTotal - salary - gastos;
+// Ganancia neta de Martín para un trabajo
+// gastos: solo aplica para Fiorella, Scott y Rodeo (se pasan del total diario)
+function calcGanancia(unidadId, precioCamioneta, gastos, fechaStr) {
+  const precio = Math.round(precioCamioneta || 0);
+  const gasto  = Math.round(gastos || 0);
+  const u = getUnidad(unidadId);
+  if (!u) return 0;
+  switch (u.tipo) {
+    case 'propio_pct':  // Fiorella: Martín 66.7%
+      return Math.round(precio * 0.667) - gasto;
+    case 'propio_fijo': { // Scott: precio - sueldo - gastos
+      const sueldo = getSueldoScott(fechaStr) || 0;
+      return precio - sueldo - gasto;
     }
-
-    case 'mitad':
-      return Math.round(camionetaTotal / 2) - Math.round(gastos / 2);
-
-    default:
-      return 0;
+    case 'mitad':        // Rodeo: 50/50
+      return Math.round(precio / 2) - Math.round(gasto / 2);
+    case 'comision':     // Belgrano 20%, resto 10%
+      return Math.round(precio * u.pct / 100);
+    default: return 0;
   }
 }
 
-// Ganancia acumulada de un conjunto de servicios (agrupados por fecha
-// para descontar los gastos correctamente por día).
-function calcTotalGanancia(unit, services) {
-  const byDate = {};
-  services.forEach(s => {
-    byDate[s.date] = (byDate[s.date] || 0) + (Number(s.camioneta) || 0);
-  });
-
-  return Object.entries(byDate).reduce((total, [date, cam]) => {
-    const gastos = Storage.getGastos(date, unit);
-    return total + calcDayGanancia(unit, cam, gastos, date);
-  }, 0);
+// ¿Esta unidad tiene gastos a cargo de Martín?
+function tieneGastos(unidadId) {
+  const u = getUnidad(unidadId);
+  if (!u) return false;
+  return ['propio_pct', 'propio_fijo', 'mitad'].includes(u.tipo);
 }
 
-// Vista previa incremental para el formulario (sin descontar gastos,
-// que son un dato del día, no del servicio).
-function calcServicePreview(unit, camioneta) {
-  const cfg = UNIT_CONFIG[unit];
-  if (!cfg) return null;
-  camioneta = Number(camioneta) || 0;
-
-  switch (cfg.type) {
-    case 'pct':
-      return {
-        amount: Math.round(camioneta * cfg.rate),
-        label:  `${Math.round(cfg.rate * 100)}%`,
-      };
-    case 'mitad':
-      return { amount: Math.round(camioneta / 2), label: '50%' };
-    case 'fijo':
-      return null; // sueldo fijo – no aplica por servicio
-    default:
-      return null;
-  }
-}
-
-// ── Formatters ─────────────────────────────────────────────────────────────
+// Formateadores
 function formatMoney(n) {
-  if (n === null || n === undefined) return '—';
+  if (n === null || n === undefined || n === '') return '—';
   const num = Math.round(Number(n) || 0);
   const abs = Math.abs(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return (num < 0 ? '-$' : '$') + abs;
 }
 
-function formatDate(dateStr) {
-  const [y, m, d] = dateStr.split('-');
-  return `${d}/${m}/${y}`;
-}
-
-function formatDateShort(dateStr) {
-  const [, m, d] = dateStr.split('-');
-  return `${d}/${m}`;
-}
-
-function parseMoneyInput(val) {
-  const n = parseInt(String(val || '').replace(/[^\d]/g, ''), 10);
+function parseMoney(str) {
+  const n = parseInt(String(str || '').replace(/[^\d]/g, ''), 10);
   return isNaN(n) ? 0 : n;
 }
 
-function pad(n) { return String(n).padStart(2, '0'); }
-
-function todayStr() {
+function getTodayStr() {
   const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function firstDayOfMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
+function addDays(fechaStr, n) {
+  const d = new Date(fechaStr + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  const pad = x => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function currentMonthYearStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+function formatFecha(fechaStr) {
+  if (!fechaStr) return '';
+  const [y, m, d] = fechaStr.split('-');
+  const dias = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  return `${dias[getDow(fechaStr)]} ${d}/${m}/${y}`;
 }
 
-function monthLabel(ym) {
-  const [y, m] = ym.split('-').map(Number);
-  const names = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
-                 'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-  return `${names[m - 1]} ${y}`;
+function formatFechaLarga(fechaStr) {
+  if (!fechaStr) return '';
+  const [y, m, d] = fechaStr.split('-');
+  const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const dias  = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  return `${dias[getDow(fechaStr)]} ${parseInt(d)} de ${meses[parseInt(m) - 1]}`;
+}
+
+function getMesStr(year, month) {
+  const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  return `${meses[month - 1]} ${year}`;
+}
+
+function prevMes(year, month) {
+  if (month === 1) return { year: year - 1, month: 12 };
+  return { year, month: month - 1 };
+}
+
+function nextMes(year, month) {
+  if (month === 12) return { year: year + 1, month: 1 };
+  return { year, month: month + 1 };
+}
+
+function horasOpciones() {
+  const opts = [];
+  for (let h = 7; h <= 21; h++) {
+    opts.push(String(h).padStart(2, '0') + ':00');
+    if (h < 21) opts.push(String(h).padStart(2, '0') + ':30');
+  }
+  return opts;
 }
