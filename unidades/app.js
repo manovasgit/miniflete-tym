@@ -1,23 +1,32 @@
+// Gestión operativa Miniflete TyM — Unidades
 (function () {
   'use strict';
 
-  // ── State ──────────────────────────────────────────────────────────────
-  const state = {
-    tab:        'carga',
-    date:       todayStr(),
-    unit:       UNITS[0],
-    editingId:  null,
-    histUnit:   UNITS[0],
-    histStart:  firstDayOfMonth(),
-    histEnd:    todayStr(),
-    monthYear:  currentMonthYearStr(),
+  // ── STATE ──────────────────────────────────────────────────────────────
+  const now = new Date();
+  const S = {
+    tab:          'agenda',
+    fecha:        getTodayStr(),
+    overlay:      null,       // null | 'detalle' | 'comanda' | 'edit'
+    selId:        null,
+    ovPage:       'view',     // 'view' | 'confirmar' | 'realizar'
+    cajaYear:     now.getFullYear(),
+    cajaMonth:    now.getMonth() + 1,
+    resumenFecha: getTodayStr(),
   };
 
-  // ── Bootstrap ──────────────────────────────────────────────────────────
+  const ESTADO_LABELS = {
+    nuevo:      'Nuevo',
+    confirmado: 'Confirmado',
+    realizado:  'Realizado',
+    cancelado:  'Cancelado',
+  };
+
+  // ── INIT ───────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function () {
-    setupNav();
-    setupModal();
     registerSW();
+    setupBottomNav();
+    initSwipe();
     render();
   });
 
@@ -27,572 +36,835 @@
     }
   }
 
-  // ── Navigation ─────────────────────────────────────────────────────────
-  function setupNav() {
-    document.querySelectorAll('.nav-btn').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        state.tab = btn.dataset.tab;
-        document.querySelectorAll('.nav-btn').forEach(function (b) {
-          b.classList.toggle('active', b.dataset.tab === state.tab);
-        });
+  // ── BOTTOM NAV ─────────────────────────────────────────────────────────
+  function setupBottomNav() {
+    document.getElementById('bottom-nav').addEventListener('click', function (e) {
+      const btn = e.target.closest('.nav-btn');
+      if (btn) navigateTo(btn.dataset.tab);
+    });
+  }
+
+  function navigateTo(tab) {
+    S.tab = tab;
+    closeOverlay();
+    document.querySelectorAll('.nav-btn').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.tab === tab);
+    });
+    render();
+  }
+
+  // ── SWIPE (agenda: cambiar día) ─────────────────────────────────────────
+  var _touchX = 0, _touchY = 0;
+  function initSwipe() {
+    const main = document.getElementById('main');
+    main.addEventListener('touchstart', function (e) {
+      _touchX = e.touches[0].clientX;
+      _touchY = e.touches[0].clientY;
+    }, { passive: true });
+    main.addEventListener('touchend', function (e) {
+      if (S.tab !== 'agenda' || S.overlay) return;
+      const dx = e.changedTouches[0].clientX - _touchX;
+      const dy = e.changedTouches[0].clientY - _touchY;
+      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 60) {
+        S.fecha = addDays(S.fecha, dx < 0 ? 1 : -1);
         render();
-      });
-    });
+      }
+    }, { passive: true });
   }
 
+  // ── RENDER DISPATCH ────────────────────────────────────────────────────
   function render() {
-    var main = document.getElementById('main');
-    switch (state.tab) {
-      case 'carga':     renderCarga(main);     break;
-      case 'dia':       renderDia(main);       break;
-      case 'historial': renderHistorial(main); break;
-      case 'mensual':   renderMensual(main);   break;
+    const main = document.getElementById('main');
+    switch (S.tab) {
+      case 'agenda':
+        main.innerHTML = buildAgenda();
+        bindAgenda(main);
+        break;
+      case 'nuevo':
+        main.innerHTML = buildForm(null);
+        bindForm(main, null);
+        break;
+      case 'resumen':
+        main.innerHTML = buildResumen();
+        bindResumen(main);
+        break;
+      case 'caja':
+        main.innerHTML = buildCaja();
+        bindCaja(main);
+        break;
     }
   }
 
-  // ── Escape HTML ────────────────────────────────────────────────────────
-  function esc(str) {
-    return String(str || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  // ── OVERLAY ────────────────────────────────────────────────────────────
+  function openOverlay(type, id, page) {
+    S.overlay = type;
+    S.selId   = id || null;
+    S.ovPage  = page || 'view';
+    renderOverlay();
   }
 
-  // ══════════════════════════════════════════════════════════════════════
-  // CARGA TAB
-  // ══════════════════════════════════════════════════════════════════════
-  function renderCarga(main) {
-    var services = Storage.getByDateUnit(state.date, state.unit);
-    var gastos   = Storage.getGastos(state.date, state.unit);
-    var camTotal = services.reduce(function (s, r) { return s + (Number(r.camioneta) || 0); }, 0);
-    var adcTotal = services.reduce(function (s, r) { return s + (Number(r.adicionales) || 0); }, 0);
+  function renderOverlay() {
+    const ov = document.getElementById('overlay');
+    const oc = document.getElementById('overlay-content');
+    ov.classList.remove('hidden');
+    switch (S.overlay) {
+      case 'detalle':
+        oc.innerHTML = buildDetalle();
+        bindDetalle(oc);
+        break;
+      case 'comanda':
+        oc.innerHTML = buildComanda();
+        bindComanda(oc);
+        break;
+      case 'edit': {
+        const j = getById(S.selId);
+        oc.innerHTML = buildForm(j);
+        bindForm(oc, S.selId);
+        break;
+      }
+    }
+  }
 
-    main.innerHTML =
-      '<div class="controls-row">' +
-        '<input type="date" id="ctrl-date" value="' + state.date + '" class="ctrl-input">' +
-        '<select id="ctrl-unit" class="ctrl-input">' +
-          UNITS.map(function (u) {
-            return '<option value="' + esc(u) + '"' + (u === state.unit ? ' selected' : '') + '>' + esc(u) + '</option>';
-          }).join('') +
-        '</select>' +
-      '</div>' +
-      '<div class="section-header">' +
-        '<span>Servicios del día</span>' +
-        '<button id="btn-add" class="btn-add">+ Agregar</button>' +
-      '</div>' +
-      '<div id="service-list">' + buildServiceList(services) + '</div>' +
-      buildGastosSection(gastos) +
-      buildSummarySection(state.unit, camTotal, adcTotal, gastos, state.date);
+  function closeOverlay() {
+    S.overlay = null;
+    S.selId   = null;
+    S.ovPage  = 'view';
+    document.getElementById('overlay').classList.add('hidden');
+  }
 
-    document.getElementById('ctrl-date').addEventListener('change', function (e) {
-      state.date = e.target.value;
-      renderCarga(main);
-    });
-    document.getElementById('ctrl-unit').addEventListener('change', function (e) {
-      state.unit = e.target.value;
-      renderCarga(main);
-    });
-    document.getElementById('btn-add').addEventListener('click', function () {
-      openModal(null);
+  // ── TOAST ──────────────────────────────────────────────────────────────
+  var _toastTimer;
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('visible');
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(function () { t.classList.remove('visible'); }, 2600);
+  }
+
+  // ── HTML ESCAPE ────────────────────────────────────────────────────────
+  function esc(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // AGENDA
+  // ════════════════════════════════════════════════════════════════════════
+  function buildAgenda() {
+    const jobs    = getByFecha(S.fecha);
+    const isToday = S.fecha === getTodayStr();
+
+    const unasigned   = jobs.filter(function (j) { return !j.unidad; });
+    const assigned    = jobs.filter(function (j) { return  j.unidad; });
+    const unitGroups  = {};
+    assigned.forEach(function (j) {
+      if (!unitGroups[j.unidad]) unitGroups[j.unidad] = [];
+      unitGroups[j.unidad].push(j);
     });
 
-    document.getElementById('service-list').addEventListener('click', function (e) {
-      var editBtn = e.target.closest('[data-edit]');
-      var delBtn  = e.target.closest('[data-del]');
-      if (editBtn) openModal(editBtn.dataset.edit);
-      if (delBtn)  confirmDelete(delBtn.dataset.del);
-    });
+    var html = '<div class="date-nav">'
+      + '<button class="btn-nav" id="btn-prev-dia">‹</button>'
+      + '<div class="date-label">'
+        + '<span class="date-label-main">' + formatFechaLarga(S.fecha) + '</span>'
+        + (isToday ? '<span class="today-badge">Hoy</span>' : '')
+      + '</div>'
+      + '<button class="btn-nav" id="btn-next-dia">›</button>'
+      + '</div>';
 
-    var gastosInput = document.getElementById('inp-gastos');
-    if (gastosInput) {
-      gastosInput.addEventListener('blur', function (e) {
-        Storage.saveGastos(state.date, state.unit, parseMoneyInput(e.target.value));
-        renderCarga(main);
+    if (jobs.length === 0) {
+      html += '<div class="empty-state">'
+        + '<div class="empty-icon">📋</div>'
+        + '<p>Sin trabajos para este día</p>'
+        + '<p class="empty-sub">Swipe o usá las flechas para cambiar de día</p>'
+        + '</div>';
+    } else {
+      if (unasigned.length) {
+        html += '<div class="unit-group-label">Sin asignar</div>';
+        html += unasigned.map(jobCard).join('');
+      }
+      UNIDADES.forEach(function (u) {
+        if (!unitGroups[u.id]) return;
+        html += '<div class="unit-group-label">' + esc(u.nombre) + '</div>';
+        html += unitGroups[u.id].map(jobCard).join('');
       });
     }
+
+    html += '<button class="fab" id="btn-fab" title="Agregar trabajo">+</button>';
+    return html;
   }
 
-  function buildServiceList(services) {
-    if (!services.length) {
-      return '<p class="empty-msg">Sin servicios cargados para este día.</p>';
-    }
-    return services.map(function (s) {
-      return '<div class="service-card">' +
-        '<div class="service-card-main">' +
-          '<span class="service-amount">' + formatMoney(s.camioneta) + '</span>' +
-          (s.adicionales ? '<span class="service-adic">+ ' + formatMoney(s.adicionales) + ' adic.</span>' : '') +
-        '</div>' +
-        (s.observaciones ? '<div class="service-obs">' + esc(s.observaciones) + '</div>' : '') +
-        '<div class="service-actions">' +
-          '<button class="btn-ghost btn-sm" data-edit="' + s.id + '">' +
-            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
-            ' Editar' +
-          '</button>' +
-          '<button class="btn-ghost btn-danger btn-sm" data-del="' + s.id + '">' +
-            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>' +
-            ' Eliminar' +
-          '</button>' +
-        '</div>' +
-      '</div>';
+  function jobCard(j) {
+    var ruta = esc(j.barrioRetiro || '?') + ' → ' + esc(j.barrioEntrega || '?');
+    return '<div class="job-card ' + j.estado + '" data-jobid="' + j.id + '">'
+      + '<div class="job-hora">' + esc(j.hora || '—') + '</div>'
+      + '<div class="job-info">'
+        + '<div class="job-nombre">' + esc(j.nombre || 'Sin nombre') + '</div>'
+        + '<div class="job-ruta">' + ruta + '</div>'
+      + '</div>'
+      + '<span class="status-badge ' + j.estado + '">' + (ESTADO_LABELS[j.estado] || j.estado) + '</span>'
+      + '</div>';
+  }
+
+  function bindAgenda(main) {
+    var prev = document.getElementById('btn-prev-dia');
+    var next = document.getElementById('btn-next-dia');
+    var fab  = document.getElementById('btn-fab');
+    if (prev) prev.addEventListener('click', function () { S.fecha = addDays(S.fecha, -1); render(); });
+    if (next) next.addEventListener('click', function () { S.fecha = addDays(S.fecha,  1); render(); });
+    if (fab)  fab.addEventListener('click',  function () { navigateTo('nuevo'); });
+    main.addEventListener('click', function (e) {
+      var card = e.target.closest('.job-card');
+      if (card && card.dataset.jobid) openOverlay('detalle', card.dataset.jobid);
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // NUEVO / EDITAR FORM
+  // ════════════════════════════════════════════════════════════════════════
+  function buildForm(job) {
+    var v     = job || {};
+    var today = getTodayStr();
+    var horas = horasOpciones();
+
+    var horaOpts = horas.map(function (h) {
+      return '<option value="' + h + '"' + ((v.hora || '09:00') === h ? ' selected' : '') + '>' + h + '</option>';
     }).join('');
-  }
 
-  function buildGastosSection(gastos) {
-    if (!unitHasGastos(state.unit)) return '';
-    return '<div class="card gastos-card">' +
-      '<div class="card-label">Gastos del día</div>' +
-      '<div class="field" style="margin-bottom:0">' +
-        '<label for="inp-gastos">Combustible, peajes, etc.</label>' +
-        '<div class="input-money">' +
-          '<span class="money-prefix">$</span>' +
-          '<input type="number" id="inp-gastos" inputmode="numeric" placeholder="0" min="0" value="' + (gastos || '') + '">' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-  }
+    var canalVal  = v.canal          || 'whatsapp';
+    var peonesVal = v.peones         || 'sin_peones';
+    var pagoVal   = v.formaPago      || 'efectivo';
+    var viajaVal  = v.viajaEnUnidad  || 'no';
 
-  function buildSummarySection(unit, camTotal, adcTotal, gastos, dateStr) {
-    if (camTotal === 0) return '';
-    var cfg     = UNIT_CONFIG[unit];
-    var ganancia = calcDayGanancia(unit, camTotal, gastos, dateStr);
-    var breakdown = '';
-
-    if (cfg.type === 'pct') {
-      var pct = Math.round(cfg.rate * 100);
-      breakdown =
-        '<div class="summary-row">' +
-          '<span>Comisión Martín (' + pct + '%)</span>' +
-          '<span>' + formatMoney(Math.round(camTotal * cfg.rate)) + '</span>' +
-        '</div>';
-      if (gastos > 0) {
-        breakdown +=
-          '<div class="summary-row text-neg">' +
-            '<span>Gastos del día</span>' +
-            '<span>−' + formatMoney(gastos) + '</span>' +
-          '</div>';
-      }
-    } else if (cfg.type === 'fijo') {
-      var salary  = getScottSalary(dateStr);
-      var dow     = getDayOfWeek(dateStr);
-      var dayName = dow === 6 ? 'sábado' : (dow === 0 ? 'domingo' : 'L-V');
-      breakdown =
-        '<div class="summary-row text-neg">' +
-          '<span>Sueldo chofer (' + dayName + ')</span>' +
-          '<span>−' + formatMoney(salary) + '</span>' +
-        '</div>';
-      if (gastos > 0) {
-        breakdown +=
-          '<div class="summary-row text-neg">' +
-            '<span>Gastos del día</span>' +
-            '<span>−' + formatMoney(gastos) + '</span>' +
-          '</div>';
-      }
-    } else if (cfg.type === 'mitad') {
-      breakdown =
-        '<div class="summary-row">' +
-          '<span>Tu 50% de camioneta</span>' +
-          '<span>' + formatMoney(Math.round(camTotal / 2)) + '</span>' +
-        '</div>';
-      if (gastos > 0) {
-        breakdown +=
-          '<div class="summary-row text-neg">' +
-            '<span>Tu 50% de gastos</span>' +
-            '<span>−' + formatMoney(Math.round(gastos / 2)) + '</span>' +
-          '</div>';
-      }
+    function seg(field, hiddenId, opts, val) {
+      var btns = opts.map(function (o) {
+        return '<button type="button" class="seg-btn' + (o.v === val ? ' active' : '') + '" data-val="' + o.v + '" data-field="' + field + '">' + o.l + '</button>';
+      }).join('');
+      return '<div class="segmented" data-field="' + field + '">' + btns + '</div>'
+        + '<input type="hidden" id="' + hiddenId + '" value="' + val + '">';
     }
 
-    if (adcTotal > 0) {
-      breakdown +=
-        '<div class="summary-row text-muted">' +
-          '<span>Adicionales (informativo)</span>' +
-          '<span>' + formatMoney(adcTotal) + '</span>' +
-        '</div>';
-    }
+    return '<div class="form-wrap">'
+      + '<form id="job-form" novalidate>'
+      + '<input type="hidden" id="f-id" value="' + esc(v.id || '') + '">'
 
-    return '<div class="card summary-card">' +
-      '<div class="card-label">Resumen del día – ' + esc(unit) + '</div>' +
-      '<div class="summary-row">' +
-        '<span>Total camioneta</span>' +
-        '<span class="bold">' + formatMoney(camTotal) + '</span>' +
-      '</div>' +
-      breakdown +
-      '<div class="summary-divider"></div>' +
-      '<div class="summary-row ganancia-row' + (ganancia < 0 ? ' neg' : '') + '">' +
-        '<span>Ganancia neta Martín</span>' +
-        '<span class="ganancia-amount">' + formatMoney(ganancia) + '</span>' +
-      '</div>' +
-    '</div>';
+      // ── Origen ──
+      + '<div class="form-section">'
+      + '<div class="form-section-title">Origen</div>'
+      + '<div class="field"><label>Canal</label>'
+        + seg('canal', 'f-canal', [{ v:'whatsapp', l:'WhatsApp' }, { v:'telefono', l:'Teléfono' }, { v:'web', l:'Web' }], canalVal)
+      + '</div>'
+      + '<div class="field"><label>Fecha <span class="req">*</span></label>'
+        + '<input type="date" id="f-fecha" value="' + esc(v.fecha || today) + '" required>'
+      + '</div>'
+      + '<div class="field"><label>Hora <span class="req">*</span></label>'
+        + '<select id="f-hora">' + horaOpts + '</select>'
+      + '</div>'
+      + '</div>'
+
+      // ── Cliente ──
+      + '<div class="form-section">'
+      + '<div class="form-section-title">Cliente</div>'
+      + '<div class="field"><label>Nombre y apellido <span class="req">*</span></label>'
+        + '<input type="text" id="f-nombre" value="' + esc(v.nombre || '') + '" placeholder="Juan García" required autocomplete="off"></div>'
+      + '<div class="field"><label>Tel. retiro <span class="req">*</span></label>'
+        + '<input type="tel" id="f-tel-retiro" value="' + esc(v.telefonoRetiro || '') + '" inputmode="numeric" placeholder="1122334455" required autocomplete="off"></div>'
+      + '<div class="field"><label>Tel. entrega</label>'
+        + '<input type="tel" id="f-tel-entrega" value="' + esc(v.telefonoEntrega || '') + '" inputmode="numeric" placeholder="1166778899" autocomplete="off"></div>'
+      + '</div>'
+
+      // ── Traslado ──
+      + '<div class="form-section">'
+      + '<div class="form-section-title">Traslado</div>'
+      + '<div class="field"><label>Inventario <span class="req">*</span></label>'
+        + '<textarea id="f-inventario" rows="3" placeholder="Qué hay que trasladar…" required>' + esc(v.inventario || '') + '</textarea></div>'
+      + '<div class="field"><label>Peones</label>'
+        + seg('peones', 'f-peones', [
+            { v:'sin_peones', l:'Sin peones' }, { v:'ascensor', l:'Ascensor' },
+            { v:'no_se', l:'No sé si entra' }, { v:'escaleras', l:'Escaleras' }
+          ], peonesVal)
+      + '</div>'
+      + '</div>'
+
+      // ── Retiro ──
+      + '<div class="form-section">'
+      + '<div class="form-section-title">Retiro</div>'
+      + '<div class="field"><label>Calle y número <span class="req">*</span></label>'
+        + '<input type="text" id="f-calle-retiro" value="' + esc(v.calleRetiro || '') + '" placeholder="Av. Corrientes 1234" required autocomplete="off"></div>'
+      + '<div class="field"><label>Piso / Depto</label>'
+        + '<input type="text" id="f-piso-retiro" value="' + esc(v.pisoRetiro || '') + '" placeholder="3° B" autocomplete="off"></div>'
+      + '<div class="field"><label>Barrio / Localidad <span class="req">*</span></label>'
+        + '<input type="text" id="f-barrio-retiro" value="' + esc(v.barrioRetiro || '') + '" placeholder="Palermo" required autocomplete="off"></div>'
+      + '</div>'
+
+      // ── Entrega ──
+      + '<div class="form-section">'
+      + '<div class="form-section-title">Entrega</div>'
+      + '<div class="field"><label>Calle y número <span class="req">*</span></label>'
+        + '<input type="text" id="f-calle-entrega" value="' + esc(v.calleEntrega || '') + '" placeholder="Florida 567" required autocomplete="off"></div>'
+      + '<div class="field"><label>Piso / Depto</label>'
+        + '<input type="text" id="f-piso-entrega" value="' + esc(v.pisoEntrega || '') + '" placeholder="PB" autocomplete="off"></div>'
+      + '<div class="field"><label>Barrio / Localidad <span class="req">*</span></label>'
+        + '<input type="text" id="f-barrio-entrega" value="' + esc(v.barrioEntrega || '') + '" placeholder="Microcentro" required autocomplete="off"></div>'
+      + '</div>'
+
+      // ── Condiciones ──
+      + '<div class="form-section">'
+      + '<div class="form-section-title">Condiciones</div>'
+      + '<div class="field"><label>Forma de pago</label>'
+        + seg('formaPago', 'f-pago', [{ v:'efectivo', l:'Efectivo' }, { v:'transferencia', l:'Transferencia' }], pagoVal)
+      + '</div>'
+      + '<div class="field"><label>Viaja en unidad</label>'
+        + seg('viajaEnUnidad', 'f-viaja', [{ v:'si', l:'Sí' }, { v:'no', l:'No' }, { v:'movilidad', l:'Movilidad propia' }], viajaVal)
+      + '</div>'
+      + '</div>'
+
+      // ── Notas ──
+      + '<div class="form-section">'
+      + '<div class="form-section-title">Notas</div>'
+      + '<div class="field"><label>Aclaraciones</label>'
+        + '<textarea id="f-aclaraciones" rows="2" placeholder="Opcional…">' + esc(v.aclaraciones || '') + '</textarea></div>'
+      + '</div>'
+
+      + '<div class="form-submit">'
+        + '<button type="submit" class="btn-primary">' + (job ? 'Guardar cambios' : 'Guardar trabajo') + '</button>'
+      + '</div>'
+      + '</form></div>';
   }
 
-  function confirmDelete(id) {
-    if (!confirm('¿Eliminar este servicio?')) return;
-    Storage.deleteService(id);
-    showToast('Servicio eliminado');
-    render();
-  }
-
-  // ══════════════════════════════════════════════════════════════════════
-  // MODAL – Add / Edit service
-  // ══════════════════════════════════════════════════════════════════════
-  function setupModal() {
-    document.getElementById('modal-close').addEventListener('click', closeModal);
-    document.getElementById('btn-cancel').addEventListener('click', closeModal);
-    document.getElementById('modal-overlay').addEventListener('click', function (e) {
-      if (e.target === document.getElementById('modal-overlay')) closeModal();
+  function bindForm(container, editId) {
+    // Segmented controls
+    container.querySelectorAll('.segmented').forEach(function (seg) {
+      seg.addEventListener('click', function (e) {
+        var btn = e.target.closest('.seg-btn');
+        if (!btn) return;
+        var field = seg.dataset.field;
+        seg.querySelectorAll('.seg-btn').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var map = { canal:'f-canal', peones:'f-peones', formaPago:'f-pago', viajaEnUnidad:'f-viaja' };
+        var inp = container.querySelector('#' + map[field]) || document.getElementById(map[field]);
+        if (inp) inp.value = btn.dataset.val;
+      });
     });
-    document.getElementById('service-form').addEventListener('submit', handleSave);
-    document.getElementById('f-camioneta').addEventListener('input', updatePreview);
+
+    var form = container.querySelector('#job-form');
+    if (form) form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      handleFormSubmit(editId);
+    });
   }
 
-  function openModal(editId) {
-    state.editingId = editId || null;
-
-    var isEdit = !!editId;
-    document.getElementById('modal-title').textContent = isEdit ? 'Editar servicio' : 'Agregar servicio';
-    document.getElementById('f-id').value          = editId || '';
-    document.getElementById('f-camioneta').value   = '';
-    document.getElementById('f-adicionales').value = '';
-    document.getElementById('f-obs').value         = '';
-    var prev = document.getElementById('f-preview');
-    prev.className = 'ganancia-preview hidden';
-    prev.innerHTML = '';
-
-    if (isEdit) {
-      var s = Storage.getAll().find(function (x) { return x.id === editId; });
-      if (s) {
-        document.getElementById('f-camioneta').value   = s.camioneta   || '';
-        document.getElementById('f-adicionales').value = s.adicionales || '';
-        document.getElementById('f-obs').value         = s.observaciones || '';
-        updatePreview();
-      }
-    }
-
-    // Scott salary hint
-    var hint = document.getElementById('scott-hint');
-    if (hint) {
-      var cfg = UNIT_CONFIG[state.unit];
-      if (cfg && cfg.type === 'fijo') {
-        var salary = getScottSalary(state.date);
-        var dow    = getDayOfWeek(state.date);
-        var day    = dow === 6 ? 'Sábado' : (dow === 0 ? 'Domingo' : 'L-V');
-        hint.innerHTML = '<span class="info-pill">💰 Sueldo Scott (' + day + '): ' + formatMoney(salary) + '</span>';
-        hint.style.display = '';
-      } else {
-        hint.style.display = 'none';
-      }
-    }
-
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    setTimeout(function () {
-      var inp = document.getElementById('f-camioneta');
-      if (inp) inp.focus();
-    }, 150);
+  function g(id) {
+    var el = document.getElementById(id);
+    return el ? el.value.trim() : '';
   }
 
-  function closeModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    state.editingId = null;
-  }
+  function handleFormSubmit(editId) {
+    if (!g('f-nombre'))        { showToast('Ingresá el nombre del cliente'); return; }
+    if (!g('f-tel-retiro'))    { showToast('Ingresá el teléfono de retiro'); return; }
+    if (!g('f-inventario'))    { showToast('Ingresá el inventario'); return; }
+    if (!g('f-calle-retiro'))  { showToast('Ingresá la dirección de retiro'); return; }
+    if (!g('f-barrio-retiro')) { showToast('Ingresá el barrio de retiro'); return; }
+    if (!g('f-calle-entrega')) { showToast('Ingresá la dirección de entrega'); return; }
+    if (!g('f-barrio-entrega')){ showToast('Ingresá el barrio de entrega'); return; }
 
-  function updatePreview() {
-    var camioneta = parseMoneyInput(document.getElementById('f-camioneta').value);
-    var prev = document.getElementById('f-preview');
+    var existing = editId ? getById(editId) : null;
+    var id       = existing ? existing.id : generateId();
 
-    if (!camioneta) {
-      prev.className = 'ganancia-preview hidden';
-      return;
-    }
+    var job = {
+      id:             id,
+      canal:          g('f-canal')        || 'whatsapp',
+      fecha:          g('f-fecha')        || getTodayStr(),
+      hora:           g('f-hora')         || '09:00',
+      nombre:         g('f-nombre'),
+      telefonoRetiro: g('f-tel-retiro'),
+      telefonoEntrega:g('f-tel-entrega'),
+      inventario:     g('f-inventario'),
+      peones:         g('f-peones')       || 'sin_peones',
+      calleRetiro:    g('f-calle-retiro'),
+      pisoRetiro:     g('f-piso-retiro'),
+      barrioRetiro:   g('f-barrio-retiro'),
+      calleEntrega:   g('f-calle-entrega'),
+      pisoEntrega:    g('f-piso-entrega'),
+      barrioEntrega:  g('f-barrio-entrega'),
+      formaPago:      g('f-pago')         || 'efectivo',
+      viajaEnUnidad:  g('f-viaja')        || 'no',
+      aclaraciones:   g('f-aclaraciones'),
+      // Conservar datos operativos si es edición
+      unidad:         existing ? existing.unidad          : null,
+      precioCamioneta:existing ? existing.precioCamioneta : 0,
+      adicionales:    existing ? existing.adicionales     : 0,
+      estado:         existing ? existing.estado          : 'nuevo',
+      totalCobrado:   existing ? existing.totalCobrado    : 0,
+      gananciaNeta:   existing ? existing.gananciaNeta    : 0,
+      comprobante:    existing ? existing.comprobante     : 'no_aplica',
+    };
 
-    var result = calcServicePreview(state.unit, camioneta);
-    prev.className = 'ganancia-preview';
+    saveJob(job);
+    showToast(editId ? 'Trabajo actualizado ✓' : 'Trabajo guardado ✓');
 
-    if (!result) {
-      prev.innerHTML = '<span class="preview-label">Chofer cobra sueldo fijo — la ganancia se calcula en el resumen del día.</span>';
+    if (editId) {
+      // Estaba editando desde overlay → volver a detalle
+      openOverlay('detalle', id, 'view');
     } else {
-      prev.innerHTML =
-        '<span class="preview-label">Tu parte de este servicio:</span> ' +
-        '<span class="preview-amount">' + formatMoney(result.amount) + '</span> ' +
-        '<span class="preview-pct">(' + result.label + ')</span>';
+      // Nuevo trabajo → ir a la agenda en esa fecha
+      S.fecha = job.fecha;
+      navigateTo('agenda');
     }
   }
 
-  function handleSave(e) {
-    e.preventDefault();
-    var camioneta = parseMoneyInput(document.getElementById('f-camioneta').value);
-    if (!camioneta) { showToast('Ingresá el precio de camioneta'); return; }
+  // ════════════════════════════════════════════════════════════════════════
+  // DETALLE OVERLAY
+  // ════════════════════════════════════════════════════════════════════════
+  function buildDetalle() {
+    var j = getById(S.selId);
+    if (!j) return '<div class="ov-header"><button class="ov-back" id="btn-ov-close">‹</button><h2>No encontrado</h2></div>';
 
-    var editId = document.getElementById('f-id').value;
-    var existing = editId ? Storage.getAll().find(function (x) { return x.id === editId; }) : null;
+    if (S.ovPage === 'confirmar') return buildConfirmar(j);
+    if (S.ovPage === 'realizar')  return buildRealizar(j);
 
-    Storage.saveService({
-      id:           editId || Storage.generateId(),
-      date:         state.date,
-      unit:         state.unit,
-      camioneta:    camioneta,
-      adicionales:  parseMoneyInput(document.getElementById('f-adicionales').value),
-      observaciones: document.getElementById('f-obs').value.trim(),
-      createdAt:    existing ? existing.createdAt : Date.now(),
-    });
+    var u = j.unidad ? getUnidad(j.unidad) : null;
 
-    closeModal();
-    showToast(editId ? 'Servicio actualizado' : 'Servicio guardado');
-    render();
+    var canalLbl  = { whatsapp:'WhatsApp', telefono:'Teléfono', web:'Web' };
+    var peonesLbl = { sin_peones:'Sin peones', ascensor:'Ascensor', no_se:'No sé si entra', escaleras:'Escaleras' };
+    var pagoLbl   = { efectivo:'Efectivo', transferencia:'Transferencia' };
+    var viajaLbl  = { si:'Sí', no:'No', movilidad:'Tiene movilidad propia' };
+    var compLbl   = { enviado:'Enviado', pendiente:'Pendiente', no_aplica:'No aplica' };
+
+    function detRow(label, value) {
+      if (!value && value !== 0) return '';
+      return '<div class="det-row"><span class="det-label">' + label + '</span><span class="det-value">' + esc(value) + '</span></div>';
+    }
+
+    var html = '<div class="ov-header">'
+      + '<button class="ov-back" id="btn-ov-close">‹</button>'
+      + '<h2>' + esc(j.nombre || 'Trabajo') + '</h2>'
+      + '</div>'
+      + '<div class="ov-body">'
+      + '<div class="estado-row">'
+        + '<span class="status-badge lg ' + j.estado + '">' + (ESTADO_LABELS[j.estado] || j.estado) + '</span>'
+        + '<span class="det-nombre">' + esc(formatFecha(j.fecha)) + ' · ' + esc(j.hora || '') + '</span>'
+      + '</div>'
+
+      // Cliente
+      + '<div class="det-section">'
+      + '<div class="det-section-title">Cliente</div>'
+      + detRow('Canal', canalLbl[j.canal] || j.canal)
+      + detRow('Nombre', j.nombre)
+      + detRow('Tel. retiro', j.telefonoRetiro)
+      + (j.telefonoEntrega ? detRow('Tel. entrega', j.telefonoEntrega) : '')
+      + detRow('Inventario', j.inventario)
+      + detRow('Peones', peonesLbl[j.peones] || j.peones)
+      + detRow('Dir. retiro', j.calleRetiro + (j.pisoRetiro ? ' ' + j.pisoRetiro : '') + ', ' + j.barrioRetiro)
+      + detRow('Dir. entrega', j.calleEntrega + (j.pisoEntrega ? ' ' + j.pisoEntrega : '') + ', ' + j.barrioEntrega)
+      + detRow('Pago', pagoLbl[j.formaPago] || j.formaPago)
+      + detRow('Viaja', viajaLbl[j.viajaEnUnidad] || j.viajaEnUnidad)
+      + (j.aclaraciones ? detRow('Aclaraciones', j.aclaraciones) : '')
+      + '</div>';
+
+    // Operativo
+    if (j.estado === 'confirmado' || j.estado === 'realizado') {
+      html += '<div class="det-section">'
+        + '<div class="det-section-title">Operativo</div>'
+        + detRow('Unidad', u ? u.nombre : '—')
+        + detRow('Precio camioneta', formatMoney(j.precioCamioneta))
+        + (j.adicionales ? detRow('Adicionales', formatMoney(j.adicionales)) : '')
+        + '</div>';
+    }
+
+    // Cierre
+    if (j.estado === 'realizado') {
+      var gastos = getGastos(j.fecha, j.unidad) || 0;
+      html += '<div class="det-section">'
+        + '<div class="det-section-title">Cierre</div>'
+        + detRow('Total cobrado', formatMoney(j.totalCobrado))
+        + (gastos ? detRow('Gastos del día', formatMoney(gastos)) : '')
+        + detRow('Comprobante', compLbl[j.comprobante] || '—')
+        + '<div class="det-row ganancia-row"><span class="det-label">Ganancia Martín</span>'
+          + '<span class="det-value ' + (j.gananciaNeta < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(j.gananciaNeta) + '</span></div>'
+        + '</div>';
+    }
+
+    // Acciones
+    html += '<div class="det-actions">';
+    if (j.estado === 'nuevo') {
+      html += '<button class="btn-primary" id="btn-ir-confirmar">Confirmar trabajo</button>';
+    }
+    if (j.estado === 'confirmado') {
+      html += '<button class="btn-primary btn-green" id="btn-ir-realizar">Marcar como realizado</button>';
+      html += '<button class="btn-outline" id="btn-ver-comanda">Ver comanda</button>';
+    }
+    if (j.estado === 'realizado') {
+      html += '<button class="btn-outline" id="btn-ver-comanda">Ver comanda</button>';
+    }
+    html += '<div class="det-actions-row">';
+    html += '<button class="btn-ghost btn-sm" id="btn-editar-job">✏️ Editar datos</button>';
+    if (j.estado !== 'realizado' && j.estado !== 'cancelado') {
+      html += '<button class="btn-ghost btn-sm btn-danger" id="btn-cancelar-job">✖ Cancelar</button>';
+    }
+    html += '<button class="btn-ghost btn-sm btn-danger" id="btn-eliminar-job">🗑 Eliminar</button>';
+    html += '</div></div></div>';
+
+    return html;
   }
 
-  // ══════════════════════════════════════════════════════════════════════
-  // DÍA TAB
-  // ══════════════════════════════════════════════════════════════════════
-  function renderDia(main) {
-    var services = Storage.getByDate(state.date);
+  function buildConfirmar(j) {
+    var unidadOpts = UNIDADES.map(function (u) {
+      return '<option value="' + u.id + '"' + (j.unidad === u.id ? ' selected' : '') + '>' + esc(u.nombre) + '</option>';
+    }).join('');
 
-    // Group by unit
-    var byUnit = {};
-    services.forEach(function (s) {
-      if (!byUnit[s.unit]) byUnit[s.unit] = [];
-      byUnit[s.unit].push(s);
-    });
-
-    var totalFact = 0, totalGan = 0;
-
-    var rows = UNITS.filter(function (u) { return byUnit[u]; }).map(function (u) {
-      var uSvc  = byUnit[u];
-      var cam   = uSvc.reduce(function (a, r) { return a + (Number(r.camioneta) || 0); }, 0);
-      var adc   = uSvc.reduce(function (a, r) { return a + (Number(r.adicionales) || 0); }, 0);
-      var gasto = Storage.getGastos(state.date, u);
-      var gan   = calcDayGanancia(u, cam, gasto, state.date);
-      totalFact += cam + adc;
-      totalGan  += gan;
-      return '<tr class="' + (gan < 0 ? 'row-neg' : '') + '">' +
-        '<td class="td-unit">' + esc(u) + '</td>' +
-        '<td class="td-num">' + formatMoney(cam) + '</td>' +
-        '<td class="td-num">' + (adc   ? formatMoney(adc)   : '—') + '</td>' +
-        '<td class="td-num">' + (gasto ? formatMoney(gasto) : '—') + '</td>' +
-        '<td class="td-num bold ' + (gan < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(gan) + '</td>' +
-      '</tr>';
-    });
-
-    var tableHtml = rows.length
-      ? '<div class="table-wrap">' +
-          '<table class="data-table">' +
-            '<thead><tr><th>Unidad</th><th>Camioneta</th><th>Adic.</th><th>Gastos</th><th>Ganancia</th></tr></thead>' +
-            '<tbody>' + rows.join('') + '</tbody>' +
-            '<tfoot><tr>' +
-              '<td class="bold">TOTAL</td>' +
-              '<td class="td-num bold">' + formatMoney(totalFact) + '</td>' +
-              '<td></td><td></td>' +
-              '<td class="td-num bold ' + (totalGan < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(totalGan) + '</td>' +
-            '</tr></tfoot>' +
-          '</table>' +
-        '</div>'
-      : '<p class="empty-msg">Sin servicios registrados para este día.</p>';
-
-    main.innerHTML =
-      '<div class="controls-row">' +
-        '<input type="date" id="ctrl-date-dia" value="' + state.date + '" class="ctrl-input">' +
-      '</div>' +
-      '<div class="section-header"><span>Resumen del día</span></div>' +
-      tableHtml +
-      (rows.length ? '<div class="card summary-card">' +
-        '<div class="summary-row ganancia-row' + (totalGan < 0 ? ' neg' : '') + '">' +
-          '<span>Ganancia total Martín</span>' +
-          '<span class="ganancia-amount">' + formatMoney(totalGan) + '</span>' +
-        '</div>' +
-      '</div>' : '');
-
-    document.getElementById('ctrl-date-dia').addEventListener('change', function (e) {
-      state.date = e.target.value;
-      renderDia(main);
-    });
+    return '<div class="ov-header">'
+      + '<button class="ov-back" id="btn-ov-back">‹</button>'
+      + '<h2>Confirmar trabajo</h2>'
+      + '</div>'
+      + '<div class="ov-body">'
+      + (isScottDomingo(j.fecha) && j.unidad === 'scott' ? '<div class="alert-warn">⚠️ Scott no trabaja los domingos</div>' : '')
+      + '<div class="form-section">'
+      + '<div class="field"><label>Unidad asignada <span class="req">*</span></label>'
+        + '<select id="conf-unidad">' + unidadOpts + '</select></div>'
+      + '<div class="field"><label>Precio camioneta <span class="req">*</span></label>'
+        + '<div class="money-wrap"><span class="money-prefix">$</span>'
+        + '<input type="number" id="conf-precio" inputmode="numeric" placeholder="0" min="0" value="' + (j.precioCamioneta || '') + '" autocomplete="off">'
+        + '</div></div>'
+      + '<div class="field"><label>Adicionales — peones / escalera (solo informativo)</label>'
+        + '<div class="money-wrap"><span class="money-prefix">$</span>'
+        + '<input type="number" id="conf-adicionales" inputmode="numeric" placeholder="0" min="0" value="' + (j.adicionales || '') + '" autocomplete="off">'
+        + '</div></div>'
+      + '<div id="conf-preview"></div>'
+      + '</div>'
+      + '<div class="det-actions"><button class="btn-primary" id="btn-confirmar-save">Confirmar</button></div>'
+      + '</div>';
   }
 
-  // ══════════════════════════════════════════════════════════════════════
-  // HISTORIAL TAB
-  // ══════════════════════════════════════════════════════════════════════
-  function renderHistorial(main) {
-    var services = Storage.getByUnitDateRange(state.histUnit, state.histStart, state.histEnd);
-    services.sort(function (a, b) {
-      return b.date.localeCompare(a.date) || b.createdAt - a.createdAt;
+  function buildRealizar(j) {
+    var hasG = tieneGastos(j.unidad);
+    var gast = getGastos(j.fecha, j.unidad) || 0;
+    return '<div class="ov-header">'
+      + '<button class="ov-back" id="btn-ov-back">‹</button>'
+      + '<h2>Marcar como realizado</h2>'
+      + '</div>'
+      + '<div class="ov-body">'
+      + '<div class="form-section">'
+      + '<div class="field"><label>Total cobrado real <span class="req">*</span></label>'
+        + '<div class="money-wrap"><span class="money-prefix">$</span>'
+        + '<input type="number" id="real-cobrado" inputmode="numeric" placeholder="0" min="0" value="' + (j.totalCobrado || '') + '" autocomplete="off">'
+        + '</div></div>'
+      + (hasG ? '<div class="field"><label>Gastos del día</label>'
+        + '<div class="field-hint">Combustible, peajes, etc. — total del día para esta unidad</div>'
+        + '<div class="money-wrap"><span class="money-prefix">$</span>'
+        + '<input type="number" id="real-gastos" inputmode="numeric" placeholder="0" min="0" value="' + (gast || '') + '" autocomplete="off">'
+        + '</div></div>' : '')
+      + '<div class="field"><label>Comprobante de pago</label>'
+        + '<select id="real-comprobante">'
+        + '<option value="enviado"'   + (j.comprobante === 'enviado'    ? ' selected' : '') + '>Enviado</option>'
+        + '<option value="pendiente"' + (j.comprobante === 'pendiente'  ? ' selected' : '') + '>Pendiente</option>'
+        + '<option value="no_aplica"' + ((!j.comprobante || j.comprobante === 'no_aplica') ? ' selected' : '') + '>No aplica</option>'
+        + '</select></div>'
+      + '<div id="real-preview"></div>'
+      + '</div>'
+      + '<div class="det-actions"><button class="btn-primary btn-green" id="btn-realizar-save">Marcar como realizado</button></div>'
+      + '</div>';
+  }
+
+  function bindDetalle(container) {
+    var j = getById(S.selId);
+    if (!j) return;
+
+    function on(id, fn) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('click', fn);
+    }
+
+    on('btn-ov-close', function () { closeOverlay(); render(); });
+    on('btn-ov-back',  function () { S.ovPage = 'view'; renderOverlay(); });
+
+    on('btn-ir-confirmar', function () { S.ovPage = 'confirmar'; renderOverlay(); });
+    on('btn-ir-realizar',  function () { S.ovPage = 'realizar';  renderOverlay(); });
+
+    on('btn-ver-comanda', function () { openOverlay('comanda', S.selId); });
+    on('btn-editar-job',  function () { openOverlay('edit', S.selId); });
+
+    on('btn-cancelar-job', function () {
+      if (!confirm('¿Cancelar este trabajo?')) return;
+      saveJob(Object.assign({}, j, { estado: 'cancelado' }));
+      showToast('Trabajo cancelado');
+      S.ovPage = 'view';
+      renderOverlay();
+      render();
     });
 
-    var camTotal = services.reduce(function (a, r) { return a + (Number(r.camioneta) || 0); }, 0);
-    var adcTotal = services.reduce(function (a, r) { return a + (Number(r.adicionales) || 0); }, 0);
-    var ganTotal = calcTotalGanancia(state.histUnit, services);
-
-    var rows = services.map(function (s) {
-      return '<div class="hist-row">' +
-        '<div class="hist-date">' + formatDate(s.date) + '</div>' +
-        '<div class="hist-amounts">' +
-          '<span class="hist-cam">' + formatMoney(s.camioneta) + '</span>' +
-          (s.adicionales ? '<span class="hist-adic">+ ' + formatMoney(s.adicionales) + ' adic.</span>' : '') +
-        '</div>' +
-        (s.observaciones ? '<div class="hist-obs">' + esc(s.observaciones) + '</div>' : '') +
-        '<div class="hist-actions">' +
-          '<button class="btn-ghost btn-sm" data-hedit="' + s.id + '">Editar</button>' +
-          '<button class="btn-ghost btn-danger btn-sm" data-hdel="' + s.id + '">Eliminar</button>' +
-        '</div>' +
-      '</div>';
+    on('btn-eliminar-job', function () {
+      if (!confirm('¿Eliminar este trabajo? No se puede deshacer.')) return;
+      deleteJob(j.id);
+      showToast('Trabajo eliminado');
+      closeOverlay();
+      render();
     });
 
-    var listHtml = rows.length
-      ? rows.join('<hr class="row-sep">')
-      : '<p class="empty-msg" style="border:none;padding:20px 0">Sin servicios en este período.</p>';
-
-    var totalesHtml = services.length
-      ? '<div class="card summary-card">' +
-          '<div class="card-label">Totales del período</div>' +
-          '<div class="summary-row">' +
-            '<span>Total camioneta</span>' +
-            '<span class="bold">' + formatMoney(camTotal) + '</span>' +
-          '</div>' +
-          (adcTotal ? '<div class="summary-row text-muted"><span>Adicionales (informativo)</span><span>' + formatMoney(adcTotal) + '</span></div>' : '') +
-          '<div class="summary-divider"></div>' +
-          '<div class="summary-row ganancia-row' + (ganTotal < 0 ? ' neg' : '') + '">' +
-            '<span>Ganancia neta Martín</span>' +
-            '<span class="ganancia-amount">' + formatMoney(ganTotal) + '</span>' +
-          '</div>' +
-        '</div>'
-      : '';
-
-    main.innerHTML =
-      '<div class="controls-row">' +
-        '<select id="hist-unit" class="ctrl-input">' +
-          UNITS.map(function (u) {
-            return '<option value="' + esc(u) + '"' + (u === state.histUnit ? ' selected' : '') + '>' + esc(u) + '</option>';
-          }).join('') +
-        '</select>' +
-      '</div>' +
-      '<div class="controls-row">' +
-        '<div class="ctrl-group"><label class="ctrl-label">Desde</label>' +
-          '<input type="date" id="hist-start" value="' + state.histStart + '" class="ctrl-input"></div>' +
-        '<div class="ctrl-group"><label class="ctrl-label">Hasta</label>' +
-          '<input type="date" id="hist-end" value="' + state.histEnd + '" class="ctrl-input"></div>' +
-      '</div>' +
-      '<div class="section-header"><span>Historial – ' + esc(state.histUnit) + '</span></div>' +
-      '<div class="hist-list-wrap" id="hist-list">' + listHtml + '</div>' +
-      totalesHtml;
-
-    document.getElementById('hist-unit').addEventListener('change', function (e) {
-      state.histUnit = e.target.value; renderHistorial(main);
-    });
-    document.getElementById('hist-start').addEventListener('change', function (e) {
-      state.histStart = e.target.value; renderHistorial(main);
-    });
-    document.getElementById('hist-end').addEventListener('change', function (e) {
-      state.histEnd = e.target.value; renderHistorial(main);
+    // Confirmar — guardar
+    on('btn-confirmar-save', function () {
+      var unidad = document.getElementById('conf-unidad') ? document.getElementById('conf-unidad').value : null;
+      var precio = parseMoney(document.getElementById('conf-precio') ? document.getElementById('conf-precio').value : '');
+      if (!unidad)  { showToast('Seleccioná una unidad'); return; }
+      if (!precio)  { showToast('Ingresá el precio de camioneta'); return; }
+      if (unidad === 'scott' && isScottDomingo(j.fecha)) { showToast('⚠️ Scott no trabaja los domingos'); return; }
+      var adicionales = parseMoney(document.getElementById('conf-adicionales') ? document.getElementById('conf-adicionales').value : '');
+      saveJob(Object.assign({}, j, { unidad: unidad, precioCamioneta: precio, adicionales: adicionales, estado: 'confirmado' }));
+      showToast('Trabajo confirmado ✓');
+      S.ovPage = 'view';
+      renderOverlay();
+      render();
     });
 
-    document.getElementById('hist-list').addEventListener('click', function (e) {
-      var editBtn = e.target.closest('[data-hedit]');
-      var delBtn  = e.target.closest('[data-hdel]');
+    // Realizar — guardar
+    on('btn-realizar-save', function () {
+      var cobrado = parseMoney(document.getElementById('real-cobrado') ? document.getElementById('real-cobrado').value : '');
+      if (!cobrado) { showToast('Ingresá el total cobrado'); return; }
+      var gastosEl = document.getElementById('real-gastos');
+      var gastos   = gastosEl ? parseMoney(gastosEl.value) : 0;
+      var comp     = document.getElementById('real-comprobante') ? document.getElementById('real-comprobante').value : 'no_aplica';
+      if (tieneGastos(j.unidad)) saveGastos(j.fecha, j.unidad, gastos);
+      var ganancia = calcGanancia(j.unidad, cobrado, gastos, j.fecha);
+      saveJob(Object.assign({}, j, { totalCobrado: cobrado, gananciaNeta: ganancia, comprobante: comp, estado: 'realizado' }));
+      showToast('¡Trabajo realizado! ✓');
+      S.ovPage = 'view';
+      renderOverlay();
+      render();
+    });
 
-      if (editBtn) {
-        var s = Storage.getAll().find(function (x) { return x.id === editBtn.dataset.hedit; });
-        if (s) {
-          state.tab  = 'carga';
-          state.date = s.date;
-          state.unit = s.unit;
-          document.querySelectorAll('.nav-btn').forEach(function (b) {
-            b.classList.toggle('active', b.dataset.tab === 'carga');
-          });
-          render();
-          setTimeout(function () { openModal(s.id); }, 60);
-        }
+    // Preview en tiempo real — confirmar
+    function updateConfPreview() {
+      var uid    = document.getElementById('conf-unidad') ? document.getElementById('conf-unidad').value : null;
+      var precio = parseMoney(document.getElementById('conf-precio') ? document.getElementById('conf-precio').value : '');
+      var el     = document.getElementById('conf-preview');
+      if (!el) return;
+      if (uid === 'scott' && isScottDomingo(j.fecha)) {
+        el.innerHTML = '<div class="alert-warn">⚠️ Scott no trabaja los domingos</div>'; return;
       }
+      if (!precio || !uid) { el.innerHTML = ''; return; }
+      var gan = calcGanancia(uid, precio, 0, j.fecha);
+      el.innerHTML = '<div class="ganancia-preview"><span class="preview-label">Ganancia estimada Martín:</span> <span class="preview-amount">' + formatMoney(gan) + '</span></div>';
+    }
+    var confPrecio = document.getElementById('conf-precio');
+    var confUnidad = document.getElementById('conf-unidad');
+    if (confPrecio) { confPrecio.addEventListener('input', updateConfPreview); updateConfPreview(); }
+    if (confUnidad) confUnidad.addEventListener('change', updateConfPreview);
 
-      if (delBtn) {
-        if (!confirm('¿Eliminar este servicio?')) return;
-        Storage.deleteService(delBtn.dataset.hdel);
-        showToast('Servicio eliminado');
-        renderHistorial(main);
+    // Preview en tiempo real — realizar
+    function updateRealPreview() {
+      var cobrado  = parseMoney(document.getElementById('real-cobrado') ? document.getElementById('real-cobrado').value : '');
+      var gastosEl = document.getElementById('real-gastos');
+      var gastos   = gastosEl ? parseMoney(gastosEl.value) : 0;
+      var el       = document.getElementById('real-preview');
+      if (!el) return;
+      if (!cobrado) { el.innerHTML = ''; return; }
+      var gan = calcGanancia(j.unidad, cobrado, gastos, j.fecha);
+      el.innerHTML = '<div class="ganancia-preview"><span class="preview-label">Ganancia Martín:</span>'
+        + ' <span class="preview-amount' + (gan < 0 ? ' text-neg' : '') + '">' + formatMoney(gan) + '</span></div>';
+    }
+    var realCobrado = document.getElementById('real-cobrado');
+    var realGastos  = document.getElementById('real-gastos');
+    if (realCobrado) { realCobrado.addEventListener('input', updateRealPreview); updateRealPreview(); }
+    if (realGastos)    realGastos.addEventListener('input', updateRealPreview);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // COMANDA OVERLAY
+  // ════════════════════════════════════════════════════════════════════════
+  function buildComanda() {
+    var j = getById(S.selId);
+    if (!j) return '<div class="ov-header"><button class="ov-back" id="btn-comanda-back">‹</button><h2>Comanda</h2></div>';
+    var texto = generarComanda(j);
+    return '<div class="ov-header">'
+      + '<button class="ov-back" id="btn-comanda-back">‹</button>'
+      + '<h2>Comanda – ' + esc(j.nombre || '') + '</h2>'
+      + '</div>'
+      + '<div class="ov-body">'
+      + '<div class="comanda-preview">' + esc(texto) + '</div>'
+      + '<button class="btn-primary" id="btn-copiar-comanda">Copiar comanda</button>'
+      + '</div>';
+  }
+
+  function bindComanda(container) {
+    var j = getById(S.selId);
+    var back = document.getElementById('btn-comanda-back');
+    var copy = document.getElementById('btn-copiar-comanda');
+    if (back) back.addEventListener('click', function () { openOverlay('detalle', S.selId, 'view'); });
+    if (copy && j) copy.addEventListener('click', function () {
+      var texto = generarComanda(j);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(texto).then(function () { showToast('Comanda copiada ✓'); }).catch(function () { fallbackCopy(texto); });
+      } else {
+        fallbackCopy(texto);
       }
     });
   }
 
-  // ══════════════════════════════════════════════════════════════════════
-  // MENSUAL TAB
-  // ══════════════════════════════════════════════════════════════════════
-  function renderMensual(main) {
-    var services = Storage.getByMonth(state.monthYear);
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showToast('Comanda copiada ✓'); } catch (e) { showToast('No se pudo copiar'); }
+    document.body.removeChild(ta);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // RESUMEN DEL DÍA
+  // ════════════════════════════════════════════════════════════════════════
+  function buildResumen() {
+    var jobs = getByFecha(S.resumenFecha).filter(function (j) {
+      return j.estado === 'confirmado' || j.estado === 'realizado';
+    });
 
     var byUnit = {};
-    services.forEach(function (s) {
-      if (!byUnit[s.unit]) byUnit[s.unit] = [];
-      byUnit[s.unit].push(s);
+    jobs.forEach(function (j) {
+      if (!j.unidad) return;
+      if (!byUnit[j.unidad]) byUnit[j.unidad] = [];
+      byUnit[j.unidad].push(j);
     });
 
     var grandFact = 0, grandGan = 0;
 
-    var rows = UNITS.filter(function (u) { return byUnit[u]; }).map(function (u) {
-      var uSvc = byUnit[u];
-      var cam  = uSvc.reduce(function (a, r) { return a + (Number(r.camioneta) || 0); }, 0);
-      var adc  = uSvc.reduce(function (a, r) { return a + (Number(r.adicionales) || 0); }, 0);
-      var gan  = calcTotalGanancia(u, uSvc);
-      grandFact += cam + adc;
-      grandGan  += gan;
-      return '<tr class="' + (gan < 0 ? 'row-neg' : '') + '">' +
-        '<td class="td-unit">' + esc(u) + '</td>' +
-        '<td class="td-num">' + formatMoney(cam) + '</td>' +
-        '<td class="td-num bold ' + (gan < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(gan) + '</td>' +
-      '</tr>';
+    var rows = UNIDADES.filter(function (u) { return byUnit[u.id]; }).map(function (u) {
+      var uJobs = byUnit[u.id];
+      var facturado = uJobs.reduce(function (s, j) {
+        return s + (j.estado === 'realizado' ? (j.totalCobrado || 0) : (j.precioCamioneta || 0));
+      }, 0);
+      var gastos = getGastos(S.resumenFecha, u.id);
+      var ganancia = uJobs.reduce(function (s, j) {
+        if (j.estado === 'realizado') return s + (j.gananciaNeta || 0);
+        return s + calcGanancia(u.id, j.precioCamioneta, gastos, j.fecha);
+      }, 0);
+      // Evitar doble descuento: si hay mix realizado/confirmado, usar solo gastos ya aplicados
+      grandFact += facturado;
+      grandGan  += ganancia;
+      return '<tr><td class="td-unit">' + esc(u.nombre) + '</td>'
+        + '<td class="td-num">' + uJobs.length + '</td>'
+        + '<td class="td-num">' + formatMoney(facturado) + '</td>'
+        + '<td class="td-num">' + (gastos ? formatMoney(gastos) : '—') + '</td>'
+        + '<td class="td-num bold ' + (ganancia < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(ganancia) + '</td>'
+        + '</tr>';
     });
 
     var tableHtml = rows.length
-      ? '<div class="table-wrap">' +
-          '<table class="data-table">' +
-            '<thead><tr><th>Unidad</th><th>Facturado</th><th>Ganancia</th></tr></thead>' +
-            '<tbody>' + rows.join('') + '</tbody>' +
-            '<tfoot><tr>' +
-              '<td class="bold">TOTAL</td>' +
-              '<td class="td-num bold">' + formatMoney(grandFact) + '</td>' +
-              '<td class="td-num bold ' + (grandGan < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(grandGan) + '</td>' +
-            '</tr></tfoot>' +
-          '</table>' +
-        '</div>'
-      : '<p class="empty-msg">Sin registros en ' + monthLabel(state.monthYear) + '.</p>';
+      ? '<div class="table-wrap"><table class="data-table">'
+          + '<thead><tr><th>Unidad</th><th>Serv.</th><th>Facturado</th><th>Gastos</th><th>Ganancia</th></tr></thead>'
+          + '<tbody>' + rows.join('') + '</tbody>'
+          + '<tfoot><tr><td class="bold">TOTAL</td>'
+            + '<td class="td-num bold">' + jobs.length + '</td>'
+            + '<td class="td-num bold">' + formatMoney(grandFact) + '</td>'
+            + '<td></td>'
+            + '<td class="td-num bold ' + (grandGan < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(grandGan) + '</td>'
+          + '</tr></tfoot>'
+        + '</table></div>'
+        + '<div class="card summary-card"><div class="summary-row ganancia-row' + (grandGan < 0 ? ' neg' : '') + '">'
+          + '<span>Ganancia total Martín</span><span class="ganancia-amount">' + formatMoney(grandGan) + '</span>'
+        + '</div></div>'
+      : '<p class="empty-msg">Sin trabajos confirmados o realizados para este día.</p>';
 
-    main.innerHTML =
-      '<div class="controls-row month-nav">' +
-        '<button id="btn-prev" class="btn-nav">◀</button>' +
-        '<span class="month-label">' + monthLabel(state.monthYear) + '</span>' +
-        '<button id="btn-next" class="btn-nav">▶</button>' +
-      '</div>' +
-      '<div class="section-header"><span>Resumen mensual</span></div>' +
-      tableHtml +
-      (rows.length
-        ? '<div class="card summary-card">' +
-            '<div class="summary-row ganancia-row' + (grandGan < 0 ? ' neg' : '') + '">' +
-              '<span>Ganancia total Martín</span>' +
-              '<span class="ganancia-amount">' + formatMoney(grandGan) + '</span>' +
-            '</div>' +
-          '</div>'
-        : '');
+    return '<div class="date-nav">'
+      + '<button class="btn-nav" id="btn-res-prev">‹</button>'
+      + '<div class="date-label"><span class="date-label-main">' + formatFechaLarga(S.resumenFecha) + '</span></div>'
+      + '<button class="btn-nav" id="btn-res-next">›</button>'
+      + '</div>'
+      + '<div class="section-header"><span>Resumen del día</span></div>'
+      + tableHtml;
+  }
 
-    document.getElementById('btn-prev').addEventListener('click', function () {
-      state.monthYear = shiftMonth(state.monthYear, -1);
-      renderMensual(main);
+  function bindResumen(main) {
+    var prev = document.getElementById('btn-res-prev');
+    var next = document.getElementById('btn-res-next');
+    if (prev) prev.addEventListener('click', function () {
+      S.resumenFecha = addDays(S.resumenFecha, -1);
+      main.innerHTML = buildResumen(); bindResumen(main);
     });
-    document.getElementById('btn-next').addEventListener('click', function () {
-      state.monthYear = shiftMonth(state.monthYear, +1);
-      renderMensual(main);
+    if (next) next.addEventListener('click', function () {
+      S.resumenFecha = addDays(S.resumenFecha, 1);
+      main.innerHTML = buildResumen(); bindResumen(main);
     });
   }
 
-  function shiftMonth(ym, delta) {
-    var parts = ym.split('-').map(Number);
-    var d = new Date(parts[0], parts[1] - 1 + delta, 1);
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1);
+  // ════════════════════════════════════════════════════════════════════════
+  // CAJA MENSUAL
+  // ════════════════════════════════════════════════════════════════════════
+  function buildCaja() {
+    var jobs = getByMes(S.cajaYear, S.cajaMonth).filter(function (j) {
+      return j.estado === 'confirmado' || j.estado === 'realizado';
+    });
+
+    var byUnit = {};
+    jobs.forEach(function (j) {
+      if (!j.unidad) return;
+      if (!byUnit[j.unidad]) byUnit[j.unidad] = [];
+      byUnit[j.unidad].push(j);
+    });
+
+    var grandFact = 0, grandGan = 0;
+
+    var rows = UNIDADES.filter(function (u) { return byUnit[u.id]; }).map(function (u) {
+      var uJobs = byUnit[u.id];
+      var facturado = uJobs.reduce(function (s, j) {
+        return s + (j.estado === 'realizado' ? (j.totalCobrado || 0) : (j.precioCamioneta || 0));
+      }, 0);
+      // Gastos por fecha única
+      var fechas = uJobs.reduce(function (acc, j) {
+        if (acc.indexOf(j.fecha) < 0) acc.push(j.fecha);
+        return acc;
+      }, []);
+      var gastosMes = fechas.reduce(function (s, f) { return s + (getGastos(f, u.id) || 0); }, 0);
+      var ganancia = uJobs.reduce(function (s, j) {
+        if (j.estado === 'realizado') return s + (j.gananciaNeta || 0);
+        return s + calcGanancia(u.id, j.precioCamioneta, 0, j.fecha);
+      }, 0);
+      grandFact += facturado;
+      grandGan  += ganancia;
+      return '<tr><td class="td-unit">' + esc(u.nombre) + '</td>'
+        + '<td class="td-num">' + uJobs.length + '</td>'
+        + '<td class="td-num">' + formatMoney(facturado) + '</td>'
+        + '<td class="td-num bold ' + (ganancia < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(ganancia) + '</td>'
+        + '</tr>';
+    });
+
+    var tableHtml = rows.length
+      ? '<div class="table-wrap"><table class="data-table">'
+          + '<thead><tr><th>Unidad</th><th>Serv.</th><th>Facturado</th><th>Ganancia</th></tr></thead>'
+          + '<tbody>' + rows.join('') + '</tbody>'
+          + '<tfoot><tr><td class="bold">TOTAL</td>'
+            + '<td class="td-num bold">' + jobs.length + '</td>'
+            + '<td class="td-num bold">' + formatMoney(grandFact) + '</td>'
+            + '<td class="td-num bold ' + (grandGan < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(grandGan) + '</td>'
+          + '</tr></tfoot>'
+        + '</table></div>'
+        + '<div class="card summary-card"><div class="summary-row ganancia-row' + (grandGan < 0 ? ' neg' : '') + '">'
+          + '<span>Ganancia total Martín</span><span class="ganancia-amount">' + formatMoney(grandGan) + '</span>'
+        + '</div></div>'
+      : '<p class="empty-msg">Sin trabajos en ' + getMesStr(S.cajaYear, S.cajaMonth) + '.</p>';
+
+    return '<div class="mes-nav">'
+      + '<button class="btn-nav" id="btn-mes-prev">‹</button>'
+      + '<span class="month-label">' + getMesStr(S.cajaYear, S.cajaMonth) + '</span>'
+      + '<button class="btn-nav" id="btn-mes-next">›</button>'
+      + '</div>'
+      + '<div class="section-header"><span>Caja mensual</span></div>'
+      + tableHtml;
   }
 
-  // ── Toast ──────────────────────────────────────────────────────────────
-  var toastTimer;
-  function showToast(msg) {
-    var t = document.getElementById('toast');
-    t.textContent = msg;
-    t.classList.add('visible');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { t.classList.remove('visible'); }, 2500);
+  function bindCaja(main) {
+    var prev = document.getElementById('btn-mes-prev');
+    var next = document.getElementById('btn-mes-next');
+    if (prev) prev.addEventListener('click', function () {
+      var p = prevMes(S.cajaYear, S.cajaMonth);
+      S.cajaYear = p.year; S.cajaMonth = p.month;
+      main.innerHTML = buildCaja(); bindCaja(main);
+    });
+    if (next) next.addEventListener('click', function () {
+      var n = nextMes(S.cajaYear, S.cajaMonth);
+      S.cajaYear = n.year; S.cajaMonth = n.month;
+      main.innerHTML = buildCaja(); bindCaja(main);
+    });
   }
 
 })();

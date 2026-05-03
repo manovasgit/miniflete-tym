@@ -1,78 +1,57 @@
-const Storage = (function () {
-  const SERVICES_KEY = 'utm_services_v1';
-  const GASTOS_KEY   = 'utm_gastos_v1';
+const JOBS_KEY   = 'mtym_jobs_v3';
+const GASTOS_KEY = 'mtym_gastos_v3';
 
-  function readServices() {
-    try { return JSON.parse(localStorage.getItem(SERVICES_KEY)) || []; }
-    catch (_) { return []; }
-  }
-  function writeServices(arr) {
-    localStorage.setItem(SERVICES_KEY, JSON.stringify(arr));
-  }
-  function readGastos() {
-    try { return JSON.parse(localStorage.getItem(GASTOS_KEY)) || {}; }
-    catch (_) { return {}; }
-  }
-  function writeGastos(obj) {
-    localStorage.setItem(GASTOS_KEY, JSON.stringify(obj));
-  }
+function _loadJobs() {
+  try { return JSON.parse(localStorage.getItem(JOBS_KEY) || '[]'); }
+  catch { return []; }
+}
+function _saveJobs(arr) { localStorage.setItem(JOBS_KEY, JSON.stringify(arr)); }
 
-  return {
-    getAll() {
-      return readServices();
-    },
+function _loadGastos() {
+  try { return JSON.parse(localStorage.getItem(GASTOS_KEY) || '{}'); }
+  catch { return {}; }
+}
+function _saveGastos(obj) { localStorage.setItem(GASTOS_KEY, JSON.stringify(obj)); }
 
-    getByDate(date) {
-      return readServices().filter(s => s.date === date);
-    },
+function generateId() {
+  return 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+}
 
-    getByDateUnit(date, unit) {
-      return readServices().filter(s => s.date === date && s.unit === unit);
-    },
+function getAll()      { return _loadJobs(); }
+function getById(id)   { return _loadJobs().find(j => j.id === id) || null; }
 
-    getByUnit(unit) {
-      return readServices().filter(s => s.unit === unit);
-    },
+function getByFecha(fechaStr) {
+  return _loadJobs()
+    .filter(j => j.fecha === fechaStr)
+    .sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));
+}
 
-    getByUnitDateRange(unit, startDate, endDate) {
-      return readServices().filter(s => {
-        if (s.unit !== unit) return false;
-        if (startDate && s.date < startDate) return false;
-        if (endDate   && s.date > endDate)   return false;
-        return true;
-      });
-    },
+function getByMes(year, month) {
+  const prefix = `${year}-${String(month).padStart(2, '0')}`;
+  return _loadJobs().filter(j => j.fecha && j.fecha.startsWith(prefix));
+}
 
-    getByMonth(yearMonth) {
-      return readServices().filter(s => s.date.startsWith(yearMonth));
-    },
+function saveJob(job) {
+  const jobs = _loadJobs();
+  const idx  = jobs.findIndex(j => j.id === job.id);
+  job.actualizadoEn = Date.now();
+  if (idx >= 0) jobs[idx] = { ...jobs[idx], ...job };
+  else { job.id = job.id || generateId(); job.creadoEn = Date.now(); jobs.push(job); }
+  _saveJobs(jobs);
+  return job;
+}
 
-    saveService(service) {
-      const services = readServices();
-      const idx = services.findIndex(s => s.id === service.id);
-      if (idx >= 0) services[idx] = service;
-      else services.push(service);
-      writeServices(services);
-    },
+function deleteJob(id) { _saveJobs(_loadJobs().filter(j => j.id !== id)); }
 
-    deleteService(id) {
-      writeServices(readServices().filter(s => s.id !== id));
-    },
+// Gastos diarios por unidad (independientes de los trabajos)
+function getGastos(fechaStr, unidadId) {
+  return Number(_loadGastos()[`${fechaStr}__${unidadId}`]) || 0;
+}
 
-    getGastos(date, unit) {
-      return Number(readGastos()[`${date}__${unit}`]) || 0;
-    },
-
-    saveGastos(date, unit, amount) {
-      const all = readGastos();
-      const key = `${date}__${unit}`;
-      if (amount > 0) all[key] = amount;
-      else delete all[key];
-      writeGastos(all);
-    },
-
-    generateId() {
-      return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-    },
-  };
-})();
+function saveGastos(fechaStr, unidadId, amount) {
+  const all = _loadGastos();
+  const key = `${fechaStr}__${unidadId}`;
+  if (amount > 0) all[key] = amount;
+  else delete all[key];
+  _saveGastos(all);
+}
