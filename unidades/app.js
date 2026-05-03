@@ -195,8 +195,13 @@
       });
     }
 
-    html += '<div class="import-bar"><button class="btn-import" id="btn-importar">📧 Importar desde email</button></div>';
-    html += '<button class="fab" id="btn-fab" title="Agregar trabajo">+</button>';
+    html += '<div class="fab-wrap">'
+      + '<div class="fab-menu hidden" id="fab-menu">'
+        + '<button class="fab-action" id="fab-importar">📧 Importar desde email</button>'
+        + '<button class="fab-action" id="fab-nuevo">✏️ Nuevo trabajo</button>'
+      + '</div>'
+      + '<button class="fab" id="btn-fab" title="Agregar trabajo">+</button>'
+      + '</div>';
     return html;
   }
 
@@ -218,9 +223,32 @@
     var fab  = document.getElementById('btn-fab');
     if (prev) prev.addEventListener('click', function () { S.fecha = addDays(S.fecha, -1); render(); });
     if (next) next.addEventListener('click', function () { S.fecha = addDays(S.fecha,  1); render(); });
-    if (fab)  fab.addEventListener('click',  function () { navigateTo('nuevo'); });
-    var importBtn = document.getElementById('btn-importar');
-    if (importBtn) importBtn.addEventListener('click', function () { openOverlay('importar'); });
+
+    if (fab) fab.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var menu = document.getElementById('fab-menu');
+      if (!menu) return;
+      var open = !menu.classList.contains('hidden');
+      menu.classList.toggle('hidden', open);
+      fab.textContent = open ? '+' : '×';
+    });
+
+    var fabNuevo    = document.getElementById('fab-nuevo');
+    var fabImportar = document.getElementById('fab-importar');
+    if (fabNuevo)    fabNuevo.addEventListener('click',    function () { navigateTo('nuevo'); });
+    if (fabImportar) fabImportar.addEventListener('click', function () { openOverlay('importar'); });
+
+    document.addEventListener('click', function closeFab(e) {
+      var wrap = document.querySelector('.fab-wrap');
+      if (wrap && !wrap.contains(e.target)) {
+        var menu = document.getElementById('fab-menu');
+        var fab2 = document.getElementById('btn-fab');
+        if (menu) menu.classList.add('hidden');
+        if (fab2) fab2.textContent = '+';
+        document.removeEventListener('click', closeFab);
+      }
+    });
+
     main.addEventListener('click', function (e) {
       var card = e.target.closest('.job-card');
       if (card && card.dataset.jobid) openOverlay('detalle', card.dataset.jobid);
