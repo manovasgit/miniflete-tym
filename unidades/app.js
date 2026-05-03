@@ -15,6 +15,20 @@
     resumenFecha: getTodayStr(),
   };
 
+  const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwKX-oZ4mmX2zHyTfesMUPO_ltXht5mk6IAsDO8RXJIEd1TmYgnt6BS9NpYse0nwfGw/exec';
+
+  function syncJob(job, gastosDelDia) {
+    if (!SHEETS_URL) return;
+    var payload = Object.assign({}, job);
+    if (gastosDelDia !== undefined) payload.gastos = gastosDelDia;
+    fetch(SHEETS_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'text/plain' },
+      mode: 'no-cors'
+    }).catch(function () {});
+  }
+
   const ESTADO_LABELS = {
     nuevo:      'Nuevo',
     confirmado: 'Confirmado',
@@ -675,7 +689,9 @@
       if (!precio)  { showToast('Ingresá el precio de camioneta'); return; }
       if (unidad === 'scott' && isScottDomingo(j.fecha)) { showToast('⚠️ Scott no trabaja los domingos'); return; }
       var adicionales = parseMoney(document.getElementById('conf-adicionales') ? document.getElementById('conf-adicionales').value : '');
-      saveJob(Object.assign({}, j, { unidad: unidad, precioCamioneta: precio, adicionales: adicionales, estado: 'confirmado' }));
+      var jobConf = Object.assign({}, j, { unidad: unidad, precioCamioneta: precio, adicionales: adicionales, estado: 'confirmado' });
+      saveJob(jobConf);
+      syncJob(jobConf);
       showToast('Trabajo confirmado ✓');
       S.ovPage = 'view';
       renderOverlay();
@@ -692,7 +708,9 @@
       var gananciaEl = document.getElementById('real-ganancia');
       var ganancia   = Math.round(Number(gananciaEl ? gananciaEl.value : 0) || 0);
       if (tieneGastos(j.unidad)) saveGastos(j.fecha, j.unidad, gastos);
-      saveJob(Object.assign({}, j, { totalCobrado: cobrado, gananciaNeta: ganancia, comprobante: comp, estado: 'realizado' }));
+      var jobReal = Object.assign({}, j, { totalCobrado: cobrado, gananciaNeta: ganancia, comprobante: comp, estado: 'realizado' });
+      saveJob(jobReal);
+      syncJob(jobReal, gastos);
       showToast('¡Trabajo realizado! ✓');
       S.ovPage = 'view';
       renderOverlay();
@@ -721,7 +739,9 @@
     on('btn-guardar-ganancia', function () {
       var ganEl = document.getElementById('edit-ganancia');
       var gan   = Math.round(Number(ganEl ? ganEl.value : (j.gananciaNeta || 0)) || 0);
-      saveJob(Object.assign({}, j, { gananciaNeta: gan }));
+      var jobGan = Object.assign({}, j, { gananciaNeta: gan });
+      saveJob(jobGan);
+      syncJob(jobGan);
       showToast('Ganancia actualizada ✓');
       renderOverlay();
       render();
