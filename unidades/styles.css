@@ -470,6 +470,24 @@ body {
   margin-bottom: 14px; min-height: 160px;
 }
 
+/* ── Import bar ────────────────────────────────────────────────────────── */
+.import-bar {
+  display: flex; justify-content: center;
+  padding: 16px 0 8px;
+}
+.btn-import {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--surf); color: var(--brand);
+  border: 1.5px solid var(--brand); border-radius: 20px;
+  padding: 8px 18px; font-size: .84rem; font-weight: 600;
+  cursor: pointer;
+}
+.btn-import:active { background: var(--brand-pale); }
+.import-hint {
+  font-size: .84rem; color: var(--text2);
+  margin-bottom: 10px;
+}
+
 /* ── Toast ─────────────────────────────────────────────────────────────── */
 #toast {
   position: fixed;

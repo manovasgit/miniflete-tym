@@ -122,6 +122,10 @@
         bindForm(oc, S.selId);
         break;
       }
+      case 'importar':
+        oc.innerHTML = buildImportar();
+        bindImportar(oc);
+        break;
     }
   }
 
@@ -191,6 +195,7 @@
       });
     }
 
+    html += '<div class="import-bar"><button class="btn-import" id="btn-importar">📧 Importar desde email</button></div>';
     html += '<button class="fab" id="btn-fab" title="Agregar trabajo">+</button>';
     return html;
   }
@@ -214,6 +219,8 @@
     if (prev) prev.addEventListener('click', function () { S.fecha = addDays(S.fecha, -1); render(); });
     if (next) next.addEventListener('click', function () { S.fecha = addDays(S.fecha,  1); render(); });
     if (fab)  fab.addEventListener('click',  function () { navigateTo('nuevo'); });
+    var importBtn = document.getElementById('btn-importar');
+    if (importBtn) importBtn.addEventListener('click', function () { openOverlay('importar'); });
     main.addEventListener('click', function (e) {
       var card = e.target.closest('.job-card');
       if (card && card.dataset.jobid) openOverlay('detalle', card.dataset.jobid);
@@ -709,6 +716,166 @@
     ta.select();
     try { document.execCommand('copy'); showToast('Comanda copiada ✓'); } catch (e) { showToast('No se pudo copiar'); }
     document.body.removeChild(ta);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // IMPORTAR DESDE EMAIL
+  // ════════════════════════════════════════════════════════════════════════
+  function buildImportar() {
+    return '<div class="ov-header">'
+      + '<button class="ov-back" id="btn-importar-close">‹</button>'
+      + '<h2>Importar desde email</h2>'
+      + '</div>'
+      + '<div class="ov-body">'
+      + '<p class="import-hint">Pegá el cuerpo del mail de confirmación de Forminator:</p>'
+      + '<div class="field"><textarea id="import-text" rows="10" placeholder="*DD-MM-AAAA*&#10;*HH:MM - HH:MM*&#10;*Nombre*&#10;..."></textarea></div>'
+      + '<div class="det-actions"><button class="btn-primary" id="btn-importar-ok">Importar trabajo</button></div>'
+      + '</div>';
+  }
+
+  function bindImportar(container) {
+    var closeBtn = document.getElementById('btn-importar-close');
+    if (closeBtn) closeBtn.addEventListener('click', function () { closeOverlay(); render(); });
+
+    var okBtn = document.getElementById('btn-importar-ok');
+    if (okBtn) okBtn.addEventListener('click', function () {
+      var text = document.getElementById('import-text') ? document.getElementById('import-text').value : '';
+      if (!text.trim()) { showToast('Pegá el contenido del email'); return; }
+      var job = parseEmailForminator(text);
+      if (!job) { showToast('No se pudo leer el email. Verificá el formato.'); return; }
+      if (!job.nombre) { showToast('No se encontró el nombre del cliente'); return; }
+      job.id = generateId();
+      saveJob(job);
+      S.fecha = job.fecha;
+      closeOverlay();
+      navigateTo('agenda');
+      showToast('Trabajo importado ✓');
+    });
+  }
+
+  function snapHora(hora) {
+    var parts = hora.split(':');
+    var mins = Number(parts[0]) * 60 + Number(parts[1] || 0);
+    var opts = horasOpciones();
+    var best = opts[0], bestDiff = Infinity;
+    opts.forEach(function (o) {
+      var op = o.split(':');
+      var diff = Math.abs(Number(op[0]) * 60 + Number(op[1]) - mins);
+      if (diff < bestDiff) { bestDiff = diff; best = o; }
+    });
+    return best;
+  }
+
+  function parseEmailForminator(text) {
+    var lines = text.split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+
+    var result = {
+      canal: 'web', fecha: getTodayStr(), hora: '09:00',
+      nombre: '', telefonoRetiro: '', telefonoEntrega: '',
+      inventario: '', peones: 'sin_peones',
+      calleRetiro: '', pisoRetiro: '', barrioRetiro: '',
+      calleEntrega: '', pisoEntrega: '', barrioEntrega: '',
+      formaPago: 'transferencia', viajaEnUnidad: 'no',
+      aclaraciones: '', estado: 'nuevo',
+      unidad: null, precioCamioneta: 0, adicionales: 0,
+      totalCobrado: 0, gananciaNeta: 0, comprobante: 'no_aplica',
+    };
+
+    // Date: *DD-MM-YYYY*
+    var dateIdx = -1;
+    for (var i = 0; i < lines.length; i++) {
+      var dm = lines[i].match(/^\*(\d{2})-(\d{2})-(\d{4})\*$/);
+      if (dm) {
+        result.fecha = dm[3] + '-' + dm[2] + '-' + dm[1];
+        dateIdx = i;
+        break;
+      }
+    }
+    if (dateIdx < 0) return null;
+
+    var idx = dateIdx + 1;
+
+    // Time: *HH:MM...*
+    if (idx < lines.length) {
+      var tm = lines[idx].match(/^\*(\d{1,2}:\d{2})/);
+      if (tm) { result.hora = snapHora(tm[1]); idx++; }
+    }
+
+    // Name: *Nombre*  (entire line bold)
+    if (idx < lines.length) {
+      var nm = lines[idx].match(/^\*([^*]+)\*$/);
+      if (nm) { result.nombre = nm[1].trim(); idx++; }
+    }
+
+    // Inventario: accumulate until *Peones*
+    var inventLines = [];
+    while (idx < lines.length && !/^\*Peones\*/i.test(lines[idx])) {
+      inventLines.push(lines[idx]);
+      idx++;
+    }
+    result.inventario = inventLines.join('\n').trim();
+
+    // Peones: *Peones* ...rest
+    if (idx < lines.length && /^\*Peones\*/i.test(lines[idx])) {
+      var pt = lines[idx].replace(/^\*Peones\*\s*/i, '').toLowerCase();
+      if (/escalera/i.test(pt))      result.peones = 'escaleras';
+      else if (/ascensor/i.test(pt)) result.peones = 'ascensor';
+      else if (/no s[eé]/i.test(pt)) result.peones = 'no_se';
+      else                           result.peones = 'sin_peones';
+      idx++;
+    }
+
+    // Dir retiro:
+    if (idx < lines.length && /^\*Dir retiro:\*$/i.test(lines[idx])) {
+      idx++;
+      if (idx < lines.length && !/^\*/.test(lines[idx])) {
+        var sr = lines[idx]; idx++;
+        var pm = sr.match(/^(.+?\d+)\s{2,}(.+)$/);
+        if (pm) { result.calleRetiro = pm[1].trim(); result.pisoRetiro = pm[2].trim(); }
+        else    { result.calleRetiro = sr.trim(); }
+      }
+      if (idx < lines.length && !/^\*/.test(lines[idx]) && !/^\d{7,}/.test(lines[idx])) {
+        result.barrioRetiro = lines[idx]; idx++;
+      }
+      if (idx < lines.length && /^\d/.test(lines[idx])) {
+        result.telefonoRetiro = lines[idx]; idx++;
+      }
+    }
+
+    // Dir entrega:
+    if (idx < lines.length && /^\*Dir entrega:\*$/i.test(lines[idx])) {
+      idx++;
+      if (idx < lines.length && !/^\*/.test(lines[idx])) {
+        var se = lines[idx]; idx++;
+        var pe = se.match(/^(.+?\d+)\s{2,}(.+)$/);
+        if (pe) { result.calleEntrega = pe[1].trim(); result.pisoEntrega = pe[2].trim(); }
+        else    { result.calleEntrega = se.trim(); }
+      }
+      if (idx < lines.length && !/^\*/.test(lines[idx]) && !/^\d{7,}/.test(lines[idx])) {
+        result.barrioEntrega = lines[idx]; idx++;
+      }
+      if (idx < lines.length && /^\d/.test(lines[idx])) {
+        result.telefonoEntrega = lines[idx]; idx++;
+      }
+    }
+
+    // Remaining lines: Pago, Viaja, extras
+    while (idx < lines.length) {
+      if (/^\*Pago\*/i.test(lines[idx])) {
+        var pg = lines[idx].replace(/^\*Pago\*\s*/i, '').toLowerCase();
+        result.formaPago = /transfer/i.test(pg) ? 'transferencia' : 'efectivo';
+      } else if (/^\*Viaja\*/i.test(lines[idx])) {
+        var vj = lines[idx].replace(/^\*Viaja\*\s*/i, '');
+        if (/^s[ií]/i.test(vj))               result.viajaEnUnidad = 'si';
+        else if (/movilidad|propia/i.test(vj)) result.viajaEnUnidad = 'movilidad';
+        else                                   result.viajaEnUnidad = 'no';
+      } else {
+        result.aclaraciones += (result.aclaraciones ? '\n' : '') + lines[idx];
+      }
+      idx++;
+    }
+
+    return result;
   }
 
   // ════════════════════════════════════════════════════════════════════════
