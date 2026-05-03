@@ -470,6 +470,13 @@ body {
   margin-bottom: 14px; min-height: 160px;
 }
 
+/* ── Ganancia editable ─────────────────────────────────────────────────── */
+.ganancia-edit-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 8px;
+}
+.ganancia-edit-row .money-wrap { flex: 1; }
+
 /* ── Import bar ────────────────────────────────────────────────────────── */
 .import-bar {
   display: flex; justify-content: center;

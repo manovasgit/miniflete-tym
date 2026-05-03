@@ -459,12 +459,32 @@
       + '<div class="det-section-title">Cliente</div>'
       + detRow('Canal', canalLbl[j.canal] || j.canal)
       + detRow('Nombre', j.nombre)
-      + detRow('Tel. retiro', j.telefonoRetiro)
-      + (j.telefonoEntrega ? detRow('Tel. entrega', j.telefonoEntrega) : '')
+      + '</div>'
+
+      // Traslado
+      + '<div class="det-section">'
+      + '<div class="det-section-title">Traslado</div>'
       + detRow('Inventario', j.inventario)
       + detRow('Peones', peonesLbl[j.peones] || j.peones)
-      + detRow('Dir. retiro', j.calleRetiro + (j.pisoRetiro ? ' ' + j.pisoRetiro : '') + ', ' + j.barrioRetiro)
-      + detRow('Dir. entrega', j.calleEntrega + (j.pisoEntrega ? ' ' + j.pisoEntrega : '') + ', ' + j.barrioEntrega)
+      + '</div>'
+
+      // Retiro
+      + '<div class="det-section">'
+      + '<div class="det-section-title">Retiro</div>'
+      + detRow('Dirección', j.calleRetiro + (j.pisoRetiro ? ' ' + j.pisoRetiro : '') + ', ' + j.barrioRetiro)
+      + detRow('Teléfono', j.telefonoRetiro)
+      + '</div>'
+
+      // Entrega
+      + '<div class="det-section">'
+      + '<div class="det-section-title">Entrega</div>'
+      + detRow('Dirección', j.calleEntrega + (j.pisoEntrega ? ' ' + j.pisoEntrega : '') + ', ' + j.barrioEntrega)
+      + (j.telefonoEntrega ? detRow('Teléfono', j.telefonoEntrega) : '')
+      + '</div>'
+
+      // Condiciones
+      + '<div class="det-section">'
+      + '<div class="det-section-title">Condiciones</div>'
       + detRow('Pago', pagoLbl[j.formaPago] || j.formaPago)
       + detRow('Viaja', viajaLbl[j.viajaEnUnidad] || j.viajaEnUnidad)
       + (j.aclaraciones ? detRow('Aclaraciones', j.aclaraciones) : '')
@@ -490,6 +510,12 @@
         + detRow('Comprobante', compLbl[j.comprobante] || '—')
         + '<div class="det-row ganancia-row"><span class="det-label">Ganancia Martín</span>'
           + '<span class="det-value ' + (j.gananciaNeta < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(j.gananciaNeta) + '</span></div>'
+        + '<div class="ganancia-edit-row">'
+          + '<div class="money-wrap"><span class="money-prefix">$</span>'
+          + '<input type="number" id="edit-ganancia" inputmode="numeric" value="' + (j.gananciaNeta || 0) + '" autocomplete="off">'
+          + '</div>'
+          + '<button class="btn-ghost btn-sm" id="btn-guardar-ganancia">Guardar</button>'
+        + '</div>'
         + '</div>';
     }
 
@@ -568,7 +594,11 @@
         + '<option value="pendiente"' + (j.comprobante === 'pendiente'  ? ' selected' : '') + '>Pendiente</option>'
         + '<option value="no_aplica"' + ((!j.comprobante || j.comprobante === 'no_aplica') ? ' selected' : '') + '>No aplica</option>'
         + '</select></div>'
-      + '<div id="real-preview"></div>'
+      + '<div class="field"><label>Ganancia Martín</label>'
+        + '<div class="field-hint">Se calcula automáticamente. Podés editarla.</div>'
+        + '<div class="money-wrap"><span class="money-prefix">$</span>'
+        + '<input type="number" id="real-ganancia" inputmode="numeric" placeholder="0" value="0" autocomplete="off">'
+        + '</div></div>'
       + '</div>'
       + '<div class="det-actions"><button class="btn-primary btn-green" id="btn-realizar-save">Marcar como realizado</button></div>'
       + '</div>';
@@ -631,8 +661,9 @@
       var gastosEl = document.getElementById('real-gastos');
       var gastos   = gastosEl ? parseMoney(gastosEl.value) : 0;
       var comp     = document.getElementById('real-comprobante') ? document.getElementById('real-comprobante').value : 'no_aplica';
+      var gananciaEl = document.getElementById('real-ganancia');
+      var ganancia   = Math.round(Number(gananciaEl ? gananciaEl.value : 0) || 0);
       if (tieneGastos(j.unidad)) saveGastos(j.fecha, j.unidad, gastos);
-      var ganancia = calcGanancia(j.unidad, cobrado, gastos, j.fecha);
       saveJob(Object.assign({}, j, { totalCobrado: cobrado, gananciaNeta: ganancia, comprobante: comp, estado: 'realizado' }));
       showToast('¡Trabajo realizado! ✓');
       S.ovPage = 'view';
@@ -658,17 +689,25 @@
     if (confPrecio) { confPrecio.addEventListener('input', updateConfPreview); updateConfPreview(); }
     if (confUnidad) confUnidad.addEventListener('change', updateConfPreview);
 
-    // Preview en tiempo real — realizar
+    // Ganancia editable — detalle realizado
+    on('btn-guardar-ganancia', function () {
+      var ganEl = document.getElementById('edit-ganancia');
+      var gan   = Math.round(Number(ganEl ? ganEl.value : (j.gananciaNeta || 0)) || 0);
+      saveJob(Object.assign({}, j, { gananciaNeta: gan }));
+      showToast('Ganancia actualizada ✓');
+      renderOverlay();
+      render();
+    });
+
+    // Preview en tiempo real — realizar (actualiza el input de ganancia)
     function updateRealPreview() {
       var cobrado  = parseMoney(document.getElementById('real-cobrado') ? document.getElementById('real-cobrado').value : '');
       var gastosEl = document.getElementById('real-gastos');
       var gastos   = gastosEl ? parseMoney(gastosEl.value) : 0;
-      var el       = document.getElementById('real-preview');
-      if (!el) return;
-      if (!cobrado) { el.innerHTML = ''; return; }
-      var gan = calcGanancia(j.unidad, cobrado, gastos, j.fecha);
-      el.innerHTML = '<div class="ganancia-preview"><span class="preview-label">Ganancia Martín:</span>'
-        + ' <span class="preview-amount' + (gan < 0 ? ' text-neg' : '') + '">' + formatMoney(gan) + '</span></div>';
+      var ganEl    = document.getElementById('real-ganancia');
+      if (!ganEl) return;
+      if (!cobrado) { ganEl.value = 0; return; }
+      ganEl.value = calcGanancia(j.unidad, cobrado, gastos, j.fecha);
     }
     var realCobrado = document.getElementById('real-cobrado');
     var realGastos  = document.getElementById('real-gastos');
