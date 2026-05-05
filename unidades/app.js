@@ -45,9 +45,14 @@
   });
 
   function registerSW() {
-    if ('serviceWorker' in navigator) {
+    if (!('serviceWorker' in navigator)) return;
+    var myScope = window.location.origin + '/miniflete-tym/unidades/';
+    navigator.serviceWorker.getRegistrations().then(function (regs) {
+      regs.forEach(function (reg) {
+        if (reg.scope !== myScope) reg.unregister();
+      });
       navigator.serviceWorker.register('./sw.js').catch(function () {});
-    }
+    });
   }
 
   // ── BOTTOM NAV ─────────────────────────────────────────────────────────
