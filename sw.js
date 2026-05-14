@@ -1,7 +1,9 @@
-const CACHE = 'mftym-v2';
+const CACHE = 'mftym-v7';
 const ASSETS = [
   './', './index.html', './css/styles.css',
-  './js/storage.js', './js/pricing.js', './js/pdf-generator.js', './js/app.js'
+  './js/storage.js', './js/pricing.js', './js/app.js',
+  './icons/icon-192.png', './icons/icon-512.png', './icons/logo.png',
+  './manifest.json'
 ];
 
 self.addEventListener('install', e => {

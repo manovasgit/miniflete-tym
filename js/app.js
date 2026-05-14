@@ -1,26 +1,16 @@
 /* ═══════════════════════════════════════════════════════════
-   Miniflete TyM — Generador de Propuestas
+   Miniflete TyM — Presupuestos
    app.js — lógica principal
    ═══════════════════════════════════════════════════════════ */
 
 const App = (() => {
+
   /* ── STATE ──────────────────────────────────────────────── */
   const state = {
-    view: 'home',          // home | form | history | stats | settings | detail
-    historyFilter: 'all',
-    historySearch: '',
-    detailId: null,
-    form: null,            // current form data
-    formStep: 1,
-  };
-
-  const STATUS_LIST = ['Borrador', 'Enviada', 'Aceptada', 'Rechazada', 'Sin respuesta'];
-  const STATUS_MAP = {
-    'Borrador':      { cls: 'borrador', label: 'Borrador' },
-    'Enviada':       { cls: 'enviada',  label: 'Enviada' },
-    'Aceptada':      { cls: 'aceptada', label: 'Aceptada' },
-    'Rechazada':     { cls: 'rechazada',label: 'Rechazada' },
-    'Sin respuesta': { cls: 'sin',      label: 'Sin resp.' }
+    view: 'form',       // form | result | history | settings
+    form: {},
+    result: null,       // { breakdown, total, totalFinal, message, adjustedManually }
+    installPrompt: null
   };
 
   /* ── HELPERS ────────────────────────────────────────────── */
@@ -28,1012 +18,578 @@ const App = (() => {
     return Date.now().toString(36) + Math.random().toString(36).slice(2);
   }
 
-  function fmtDate(iso) {
-    if (!iso) return '-';
-    return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
-  }
-
-  function daysDiff(iso) {
-    if (!iso) return 0;
-    return Math.floor((Date.now() - new Date(iso)) / 86400000);
+  function esc(s) {
+    return (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   function toast(msg, dur = 2500) {
     const el = document.getElementById('toast');
     el.textContent = msg;
     el.classList.add('show');
-    setTimeout(() => el.classList.remove('show'), dur);
-  }
-
-  function badge(status) {
-    const s = STATUS_MAP[status] || STATUS_MAP['Borrador'];
-    return `<span class="badge badge-${s.cls}">${s.label}</span>`;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), dur);
   }
 
   function blankForm() {
     return {
-      id: uuid(),
-      // Step 1 – Cliente
-      clientName: '', clientRubro: '', clientContact: '', clientPhone: '', clientEmail: '',
-      // Step 2 – Servicio
-      serviceType: '', originZone: '', destZone: '', frequency: 'Puntual', inventory: '',
-      // Step 3 – Precio
-      vehicleType: 'utilitario', hasElevator: false, elevatorMode: 'traslado', camionetaPrice: '',
-      serviceMode: 'traslado', hours: 2, peones: 2,
-      floorOrigin: 0, floorDest: 0, looseItems: 0,
-      originArea: '', destArea: '',
-      // Step 4 – Final
-      basePrice: 0, finalPrice: 0, priceBreakdown: [],
-      notes: '', status: 'Borrador',
-      // Meta
-      proposalNumber: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      serviceType: '', zona: '', distanciaKm: '', ciudadProvincial: '',
+      descripcionCarga: '',
+      horasEstimadas: '', cantidadPeones: '0',
+      volumen: 'estandar',
+      accesoOrigen: 'pb', pisoOrigen: '1', tipoEscaleraOrigen: 'completa', bultosEscaleraOrigen: '',
+      accesoDestino: 'pb', pisoDestino: '1', tipoEscaleraDestino: 'completa', bultosEscaleraDestino: '',
+      incluyePeajes: false, montoPeajes: '',
+      fechaTentativa: '', formaPago: 'efectivo', aclaraciones: ''
     };
   }
 
   /* ── NAVIGATION ─────────────────────────────────────────── */
-  function navigate(view, extra = {}) {
+  function navigate(view) {
     state.view = view;
-    Object.assign(state, extra);
+    window.scrollTo(0, 0);
     render();
   }
 
   function render() {
     const main = document.getElementById('main-content');
     const title = document.getElementById('page-title');
-    const backBtn = document.getElementById('btn-back');
 
-    // Nav active state
     document.querySelectorAll('.nav-item[data-view]').forEach(el => {
       el.classList.toggle('active', el.dataset.view === state.view);
     });
 
-    const showBack = ['form', 'detail'].includes(state.view);
-    backBtn.classList.toggle('hidden', !showBack);
-
     switch (state.view) {
-      case 'home':     title.textContent = 'Miniflete TyM'; main.innerHTML = renderHome(); break;
-      case 'history':  title.textContent = 'Historial'; main.innerHTML = renderHistory(); break;
-      case 'form':     title.textContent = state.form?.proposalNumber
-                         ? `Editar ${state.form.proposalNumber}` : 'Nueva Propuesta';
-                       main.innerHTML = renderForm(); break;
-      case 'stats':    title.textContent = 'Estadísticas'; main.innerHTML = renderStats(); break;
-      case 'settings': title.textContent = 'Configuración'; main.innerHTML = renderSettings(); break;
-      case 'detail':   title.textContent = 'Propuesta'; main.innerHTML = renderDetail(); break;
+      case 'form':
+        title.textContent = 'Nuevo presupuesto';
+        main.innerHTML = renderForm();
+        bindFormEvents();
+        break;
+      case 'result':
+        title.textContent = 'Presupuesto';
+        main.innerHTML = renderResult();
+        bindResultEvents();
+        break;
+      case 'history':
+        title.textContent = 'Historial';
+        main.innerHTML = renderHistory();
+        bindHistoryEvents();
+        break;
+      case 'settings':
+        title.textContent = 'Configuración de tarifas';
+        main.innerHTML = renderSettings();
+        bindSettingsEvents();
+        break;
     }
-    bindEvents();
   }
 
   /* ══════════════════════════════════════════════════════════
-     HOME
+     FORM
   ══════════════════════════════════════════════════════════ */
-  function renderHome() {
-    const proposals = Storage.getProposals();
-    const settings = Storage.getSettings();
-    const alertDays = settings.alertDays || 3;
+  function renderForm() {
+    const d = state.form;
+    return `
+    <div class="form-wrap">
+      <!-- Tipo de servicio -->
+      <div class="field">
+        <label>Tipo de servicio <span class="req">*</span></label>
+        <select id="f-serviceType">
+          <option value="">Seleccioná el servicio...</option>
+          <option value="miniflete"${d.serviceType==='miniflete'?' selected':''}>Miniflete / Flete puntual</option>
+          <option value="camion"${d.serviceType==='camion'?' selected':''}>Mudanza con camión</option>
+          <option value="reparto"${d.serviceType==='reparto'?' selected':''}>Reparto de mercadería</option>
+          <option value="expreso"${d.serviceType==='expreso'?' selected':''}>Traslado desde/hacia expreso</option>
+        </select>
+      </div>
 
-    const total = proposals.length;
-    const accepted = proposals.filter(p => p.status === 'Aceptada').length;
-    const pending = proposals.filter(p => p.status === 'Enviada' || p.status === 'Sin respuesta').length;
-    const rate = total > 0 ? Math.round((accepted / total) * 100) : 0;
+      <!-- Zona -->
+      <div class="field">
+        <label>Zona <span class="req">*</span></label>
+        <select id="f-zona">
+          <option value="">Seleccioná la zona...</option>
+          <option value="caba"${d.zona==='caba'?' selected':''}>Solo CABA</option>
+          <option value="gba"${d.zona==='gba'?' selected':''}>CABA ↔ GBA (hasta ~40km)</option>
+          <option value="provincia"${d.zona==='provincia'?' selected':''}>CABA ↔ Provincia (más de ~40km)</option>
+        </select>
+      </div>
 
-    const alerts = proposals.filter(p =>
-      (p.status === 'Enviada' || p.status === 'Sin respuesta') &&
-      daysDiff(p.updatedAt) >= alertDays
-    );
+      <!-- Provincia extra -->
+      <div class="field conditional" id="field-provincia">
+        <label>Ciudad de origen/destino</label>
+        <input type="text" id="f-ciudadProvincial" value="${esc(d.ciudadProvincial)}" placeholder="Ej: Pilar, Mar del Plata">
+        <div class="hint">Ciudad fuera del GBA</div>
+      </div>
+      <div class="field conditional" id="field-distancia">
+        <label>Distancia estimada (km)</label>
+        <input type="number" id="f-distanciaKm" value="${esc(d.distanciaKm)}" placeholder="Ej: 80" inputmode="numeric">
+      </div>
 
-    const recent = proposals.slice(0, 5);
+      <!-- Descripción carga -->
+      <div class="field">
+        <label>Descripción de la carga <span class="req">*</span></label>
+        <textarea id="f-descripcionCarga" placeholder="Ej: heladera, sommier matrimonial, 10 cajas...">${esc(d.descripcionCarga)}</textarea>
+      </div>
+
+      <!-- Mudanza campos adicionales -->
+      <div class="conditional" id="fields-camion">
+        <div class="section-divider">Mudanza con camión</div>
+        <div class="field">
+          <label>Horas estimadas de trabajo <span class="req">*</span></label>
+          <input type="number" id="f-horasEstimadas" value="${esc(d.horasEstimadas)}" placeholder="Ej: 3" min="0.5" step="0.5" inputmode="decimal">
+          <div class="hint">Solo horas cargados (carga + viaje + descarga). El viaje vacío va por cuenta de la empresa.</div>
+        </div>
+        <div class="field">
+          <label>Cantidad de peones</label>
+          <select id="f-cantidadPeones">
+            <option value="0"${(d.cantidadPeones||'0')==='0'?' selected':''}>Sin peones</option>
+            <option value="1"${d.cantidadPeones==='1'?' selected':''}>1 peón</option>
+            <option value="2"${d.cantidadPeones==='2'?' selected':''}>2 peones</option>
+            <option value="3"${d.cantidadPeones==='3'?' selected':''}>3 peones</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Reparto volumen -->
+      <div class="conditional" id="fields-reparto">
+        <div class="section-divider">Reparto</div>
+        <div class="field">
+          <label>Volumen</label>
+          <select id="f-volumen">
+            <option value="estandar"${(d.volumen||'estandar')==='estandar'?' selected':''}>Estándar</option>
+            <option value="alto"${d.volumen==='alto'?' selected':''}>Alto volumen</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Acceso origen -->
+      <div class="section-divider">Acceso en origen</div>
+      <div class="field">
+        <label>Acceso en origen</label>
+        <select id="f-accesoOrigen">
+          <option value="pb"${d.accesoOrigen==='pb'?' selected':''}>Planta baja</option>
+          <option value="ascensor"${d.accesoOrigen==='ascensor'?' selected':''}>Con ascensor</option>
+          <option value="escalera"${d.accesoOrigen==='escalera'?' selected':''}>Por escalera</option>
+        </select>
+      </div>
+      <div class="conditional" id="fields-escalera-origen">
+        <div class="field">
+          <label>Piso en origen <span class="req">*</span></label>
+          <input type="number" id="f-pisoOrigen" value="${esc(d.pisoOrigen)||'1'}" min="1" max="20" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label>Tipo de escalera en origen</label>
+          <select id="f-tipoEscaleraOrigen">
+            <option value="completa"${(d.tipoEscaleraOrigen||'completa')==='completa'?' selected':''}>Mudanza completa por escalera</option>
+            <option value="parcial"${d.tipoEscaleraOrigen==='parcial'?' selected':''}>Parcial (algunos bultos por escalera)</option>
+            <option value="sueltos"${d.tipoEscaleraOrigen==='sueltos'?' selected':''}>Solo bultos sueltos</option>
+          </select>
+        </div>
+        <div class="conditional" id="fields-bultos-origen">
+          <div class="field">
+            <label>Cantidad de bultos por escalera en origen</label>
+            <input type="number" id="f-bultosEscaleraOrigen" value="${esc(d.bultosEscaleraOrigen)}" min="1" inputmode="numeric" placeholder="Ej: 3">
+          </div>
+        </div>
+      </div>
+
+      <!-- Acceso destino -->
+      <div class="section-divider">Acceso en destino</div>
+      <div class="field">
+        <label>Acceso en destino</label>
+        <select id="f-accesoDestino">
+          <option value="pb"${d.accesoDestino==='pb'?' selected':''}>Planta baja</option>
+          <option value="ascensor"${d.accesoDestino==='ascensor'?' selected':''}>Con ascensor</option>
+          <option value="escalera"${d.accesoDestino==='escalera'?' selected':''}>Por escalera</option>
+        </select>
+      </div>
+      <div class="conditional" id="fields-escalera-destino">
+        <div class="field">
+          <label>Piso en destino <span class="req">*</span></label>
+          <input type="number" id="f-pisoDestino" value="${esc(d.pisoDestino)||'1'}" min="1" max="20" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label>Tipo de escalera en destino</label>
+          <select id="f-tipoEscaleraDestino">
+            <option value="completa"${(d.tipoEscaleraDestino||'completa')==='completa'?' selected':''}>Mudanza completa por escalera</option>
+            <option value="parcial"${d.tipoEscaleraDestino==='parcial'?' selected':''}>Parcial (algunos bultos por escalera)</option>
+            <option value="sueltos"${d.tipoEscaleraDestino==='sueltos'?' selected':''}>Solo bultos sueltos</option>
+          </select>
+        </div>
+        <div class="conditional" id="fields-bultos-destino">
+          <div class="field">
+            <label>Cantidad de bultos por escalera en destino</label>
+            <input type="number" id="f-bultosEscaleraDestino" value="${esc(d.bultosEscaleraDestino)}" min="1" inputmode="numeric" placeholder="Ej: 3">
+          </div>
+        </div>
+      </div>
+
+      <!-- Peajes -->
+      <div class="section-divider">Otros</div>
+      <div class="field-inline">
+        <input type="checkbox" id="f-incluyePeajes"${d.incluyePeajes?' checked':''}>
+        <label for="f-incluyePeajes">¿Incluye peajes?</label>
+      </div>
+      <div class="conditional" id="field-peajes">
+        <div class="field" style="margin-top:14px">
+          <label>Monto de peajes</label>
+          <input type="number" id="f-montoPeajes" value="${esc(d.montoPeajes)}" placeholder="Ej: 3500" inputmode="numeric">
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Fecha tentativa</label>
+        <input type="date" id="f-fechaTentativa" value="${esc(d.fechaTentativa)}">
+      </div>
+
+      <div class="field">
+        <label>Forma de pago</label>
+        <select id="f-formaPago">
+          <option value="efectivo"${(d.formaPago||'efectivo')==='efectivo'?' selected':''}>Efectivo</option>
+          <option value="transferencia"${d.formaPago==='transferencia'?' selected':''}>Transferencia bancaria</option>
+          <option value="efectivo_transferencia"${d.formaPago==='efectivo_transferencia'?' selected':''}>Efectivo o transferencia</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Aclaraciones adicionales <span class="hint-inline">(opcional)</span></label>
+        <textarea id="f-aclaraciones" placeholder="Condiciones especiales, aclaraciones...">${esc(d.aclaraciones)}</textarea>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-primary btn-calc" id="btn-calcular">🧮 Calcular presupuesto</button>
+      </div>
+    </div>`;
+  }
+
+  function collectForm() {
+    const v = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+    const cb = id => { const el = document.getElementById(id); return el ? el.checked : false; };
+    state.form = {
+      serviceType: v('f-serviceType'),
+      zona: v('f-zona'),
+      distanciaKm: v('f-distanciaKm'),
+      ciudadProvincial: v('f-ciudadProvincial').trim(),
+      descripcionCarga: v('f-descripcionCarga').trim(),
+      horasEstimadas: v('f-horasEstimadas'),
+      cantidadPeones: v('f-cantidadPeones') || '0',
+      volumen: v('f-volumen') || 'estandar',
+      accesoOrigen: v('f-accesoOrigen') || 'pb',
+      pisoOrigen: v('f-pisoOrigen') || '1',
+      tipoEscaleraOrigen: v('f-tipoEscaleraOrigen') || 'completa',
+      bultosEscaleraOrigen: v('f-bultosEscaleraOrigen'),
+      accesoDestino: v('f-accesoDestino') || 'pb',
+      pisoDestino: v('f-pisoDestino') || '1',
+      tipoEscaleraDestino: v('f-tipoEscaleraDestino') || 'completa',
+      bultosEscaleraDestino: v('f-bultosEscaleraDestino'),
+      incluyePeajes: cb('f-incluyePeajes'),
+      montoPeajes: v('f-montoPeajes'),
+      fechaTentativa: v('f-fechaTentativa'),
+      formaPago: v('f-formaPago') || 'efectivo',
+      aclaraciones: v('f-aclaraciones').trim()
+    };
+  }
+
+  function updateConditionalFields() {
+    const svc = (document.getElementById('f-serviceType') || {}).value || '';
+    const zona = (document.getElementById('f-zona') || {}).value || '';
+    const aOrigen = (document.getElementById('f-accesoOrigen') || {}).value || '';
+    const aDestino = (document.getElementById('f-accesoDestino') || {}).value || '';
+    const tEscOrigen = (document.getElementById('f-tipoEscaleraOrigen') || {}).value || '';
+    const tEscDestino = (document.getElementById('f-tipoEscaleraDestino') || {}).value || '';
+    const peajes = (document.getElementById('f-incluyePeajes') || {}).checked;
+
+    show('field-provincia', zona === 'provincia');
+    show('field-distancia', zona === 'provincia');
+    show('fields-camion', svc === 'camion');
+    show('fields-reparto', svc === 'reparto');
+    show('fields-escalera-origen', aOrigen === 'escalera');
+    show('fields-bultos-origen', aOrigen === 'escalera' && (tEscOrigen === 'parcial' || tEscOrigen === 'sueltos'));
+    show('fields-escalera-destino', aDestino === 'escalera');
+    show('fields-bultos-destino', aDestino === 'escalera' && (tEscDestino === 'parcial' || tEscDestino === 'sueltos'));
+    show('field-peajes', peajes);
+  }
+
+  function show(id, visible) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.display = visible ? '' : 'none';
+  }
+
+  function bindFormEvents() {
+    updateConditionalFields();
+
+    ['f-serviceType', 'f-zona', 'f-accesoOrigen', 'f-accesoDestino',
+     'f-tipoEscaleraOrigen', 'f-tipoEscaleraDestino'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', updateConditionalFields);
+    });
+    document.getElementById('f-incluyePeajes')?.addEventListener('change', updateConditionalFields);
+
+    document.getElementById('btn-calcular')?.addEventListener('click', () => {
+      collectForm();
+      if (!validateForm()) return;
+      const { breakdown, total } = Pricing.calculate(state.form);
+      const message = Pricing.generateMessage(state.form, breakdown, total);
+      state.result = { breakdown, total, totalFinal: total, message, adjustedManually: false };
+      navigate('result');
+    });
+  }
+
+  function validateForm() {
+    const d = state.form;
+    if (!d.serviceType) { toast('Seleccioná el tipo de servicio'); return false; }
+    if (!d.zona) { toast('Seleccioná la zona'); return false; }
+    if (!d.descripcionCarga) { toast('Describí la carga'); return false; }
+    if (d.serviceType === 'camion' && !d.horasEstimadas) { toast('Ingresá las horas estimadas'); return false; }
+    if (d.accesoOrigen === 'escalera' && !d.pisoOrigen) { toast('Ingresá el piso en origen'); return false; }
+    if (d.accesoDestino === 'escalera' && !d.pisoDestino) { toast('Ingresá el piso en destino'); return false; }
+    return true;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     RESULT
+  ══════════════════════════════════════════════════════════ */
+  function renderResult() {
+    const r = state.result;
+    if (!r) return '<div class="view-pad"><p>Sin resultado.</p></div>';
+
+    const svcLabels = {
+      miniflete: 'Miniflete / Flete puntual',
+      camion: 'Mudanza con camión',
+      reparto: 'Reparto de mercadería',
+      expreso: 'Traslado desde/hacia expreso'
+    };
+    const zonaLabel = { caba: 'Solo CABA', gba: 'CABA ↔ GBA', provincia: 'CABA ↔ Provincia' }[state.form.zona] || '-';
+    const zonaFull = state.form.zona === 'provincia' && state.form.ciudadProvincial
+      ? `CABA ↔ ${state.form.ciudadProvincial}` : zonaLabel;
+
+    const accesoLabel = (acc, piso) => {
+      if (acc === 'pb') return 'Planta baja';
+      if (acc === 'ascensor') return 'Con ascensor';
+      if (acc === 'escalera') return `Escalera – piso ${piso || 1}`;
+      return '-';
+    };
+
+    const desglose = r.breakdown
+      .filter(i => i && typeof i.amount === 'number' && i.amount > 0)
+      .map(i => `
+      <div class="breakdown-item">
+        <span class="b-label">${esc(i.label)}</span>
+        <span class="b-amt">${Pricing.formatMonto(i.amount)}</span>
+      </div>`).join('');
 
     return `
-    <div class="home-view">
-      <div class="hero-banner">
-        <img src="icons/logo.png" alt="Miniflete TyM" style="width:120px;height:120px;object-fit:contain;border-radius:50%;margin-bottom:16px;display:block;margin-left:auto;margin-right:auto;box-shadow:0 4px 16px rgba(0,0,0,.3)">
-        <h2>Generador de Propuestas</h2>
-        <p>Crea propuestas profesionales en segundos</p>
-        <button class="hero-btn" data-action="new-proposal">+ Nueva Propuesta</button>
+    <div class="view-pad">
+      <!-- Resumen -->
+      <div class="card">
+        <div class="section-title">Resumen del servicio</div>
+        <div class="detail-row"><span class="dl">Servicio</span><span class="dv">${svcLabels[state.form.serviceType] || '-'}</span></div>
+        <div class="detail-row"><span class="dl">Zona</span><span class="dv">${zonaFull}</span></div>
+        <div class="detail-row"><span class="dl">Carga</span><span class="dv">${esc(state.form.descripcionCarga)}</span></div>
+        <div class="detail-row"><span class="dl">Origen</span><span class="dv">${accesoLabel(state.form.accesoOrigen, state.form.pisoOrigen)}</span></div>
+        <div class="detail-row"><span class="dl">Destino</span><span class="dv">${accesoLabel(state.form.accesoDestino, state.form.pisoDestino)}</span></div>
       </div>
 
-      ${alerts.length ? `
-      <div class="alert-banner">
-        ⚠️ <strong>${alerts.length} propuesta${alerts.length > 1 ? 's' : ''}</strong> sin respuesta hace más de ${alertDays} días:
-        ${alerts.map(p => `<br>• ${p.proposalNumber} – ${p.clientName}`).join('')}
-      </div>` : ''}
-
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-num">${total}</div>
-          <div class="stat-label">Total propuestas</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-num" style="color:var(--success)">${accepted}</div>
-          <div class="stat-label">Aceptadas</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-num" style="color:var(--info)">${pending}</div>
-          <div class="stat-label">Pendientes</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-num">${rate}%</div>
-          <div class="stat-label">Tasa aceptación</div>
+      <!-- Desglose -->
+      <div class="card">
+        <div class="section-title">Desglose del precio</div>
+        <div class="breakdown-list">${desglose}</div>
+        <div class="breakdown-total">
+          <span>TOTAL CALCULADO</span>
+          <span>${Pricing.formatMonto(r.total)}</span>
         </div>
       </div>
 
-      ${recent.length ? `
-      <div class="section-title">Propuestas recientes</div>
-      ${recent.map(p => proposalItem(p)).join('')}
-      ${proposals.length > 5 ? `<button class="btn btn-ghost text-center mt-8" style="width:100%" data-action="go-history">Ver todas (${proposals.length})</button>` : ''}
-      ` : `
-      <div class="empty-state">
-        <div class="icon">📋</div>
-        <h3>Sin propuestas aún</h3>
-        <p>Tocá el botón rojo "+" para crear tu primera propuesta comercial</p>
+      <!-- Total ajustable -->
+      <div class="card total-card">
+        <div class="total-label">Total</div>
+        <div class="total-amount" id="total-display">${Pricing.formatMonto(r.totalFinal)}</div>
+        ${r.adjustedManually ? '<div class="total-adjusted">*(importe ajustado)*</div>' : ''}
+        <button class="btn-adjust" id="btn-adjust">✏️ Ajustar importe</button>
+        <div class="adjust-row hidden" id="adjust-row">
+          <input type="number" id="input-adjust" value="${r.totalFinal}" inputmode="numeric" step="500">
+          <button class="btn-apply" id="btn-apply-adjust">✓ Aplicar</button>
+        </div>
       </div>
-      `}
+
+      <!-- Mensaje WhatsApp -->
+      <div class="card">
+        <div class="section-title">Mensaje para WhatsApp</div>
+        <textarea class="message-box" id="message-box" readonly>${esc(r.message)}</textarea>
+        <button class="btn btn-copy" id="btn-copy">📋 Copiar mensaje</button>
+      </div>
+
+      <!-- Acciones -->
+      <div class="btn-row mt-12">
+        <button class="btn btn-secondary" id="btn-guardar">💾 Guardar</button>
+        <button class="btn btn-secondary" id="btn-nuevo">← Nuevo</button>
+      </div>
     </div>`;
+  }
+
+  function regenerateMessage() {
+    const r = state.result;
+    r.message = Pricing.generateMessage(state.form, r.breakdown, r.totalFinal);
+    const box = document.getElementById('message-box');
+    if (box) box.value = r.message;
+  }
+
+  function bindResultEvents() {
+    document.getElementById('btn-adjust')?.addEventListener('click', () => {
+      const row = document.getElementById('adjust-row');
+      const input = document.getElementById('input-adjust');
+      row?.classList.remove('hidden');
+      if (input) { input.value = state.result.totalFinal; input.focus(); input.select(); }
+    });
+
+    document.getElementById('btn-apply-adjust')?.addEventListener('click', () => {
+      const val = parseFloat(document.getElementById('input-adjust')?.value);
+      if (!val || val <= 0) { toast('Ingresá un importe válido'); return; }
+      state.result.totalFinal = val;
+      state.result.adjustedManually = true;
+      regenerateMessage();
+      const display = document.getElementById('total-display');
+      if (display) display.textContent = Pricing.formatMonto(val);
+      document.getElementById('adjust-row')?.classList.add('hidden');
+      // Show "ajustado" label without full re-render
+      const card = document.querySelector('.total-card');
+      const existing = card?.querySelector('.total-adjusted');
+      if (!existing && card) {
+        const div = document.createElement('div');
+        div.className = 'total-adjusted';
+        div.textContent = '*(importe ajustado)*';
+        card.querySelector('.btn-adjust').before(div);
+      }
+      toast('Importe actualizado ✓');
+    });
+
+    document.getElementById('btn-copy')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-copy');
+      try {
+        await navigator.clipboard.writeText(state.result.message);
+        btn.textContent = '✓ ¡Copiado!';
+        btn.style.background = '#1da851';
+        setTimeout(() => { btn.textContent = '📋 Copiar mensaje'; btn.style.background = ''; }, 2000);
+      } catch {
+        // Fallback
+        const box = document.getElementById('message-box');
+        box?.select();
+        document.execCommand('copy');
+        toast('Mensaje copiado ✓');
+      }
+    });
+
+    document.getElementById('btn-guardar')?.addEventListener('click', () => {
+      const r = state.result;
+      const q = {
+        id: uuid(),
+        savedAt: new Date().toISOString(),
+        form: { ...state.form },
+        breakdown: r.breakdown.filter(i => i && typeof i.amount === 'number'),
+        totalCalculado: r.total,
+        totalFinal: r.totalFinal,
+        adjustedManually: r.adjustedManually,
+        message: r.message
+      };
+      Storage.saveQuote(q);
+      toast('Guardado en historial ✓');
+    });
+
+    document.getElementById('btn-nuevo')?.addEventListener('click', () => {
+      navigate('form');
+    });
   }
 
   /* ══════════════════════════════════════════════════════════
      HISTORY
   ══════════════════════════════════════════════════════════ */
   function renderHistory() {
-    const all = Storage.getProposals();
-    const filters = ['all', 'Borrador', 'Enviada', 'Aceptada', 'Rechazada', 'Sin respuesta'];
-    const fLabels = { all: 'Todas', Borrador: 'Borrador', Enviada: 'Enviada',
-                      Aceptada: 'Aceptada', Rechazada: 'Rechazada', 'Sin respuesta': 'Sin resp.' };
-
-    let filtered = all;
-    if (state.historyFilter !== 'all') {
-      filtered = filtered.filter(p => p.status === state.historyFilter);
-    }
-    if (state.historySearch) {
-      const q = state.historySearch.toLowerCase();
-      filtered = filtered.filter(p =>
-        (p.clientName || '').toLowerCase().includes(q) ||
-        (p.proposalNumber || '').toLowerCase().includes(q) ||
-        (p.originZone || '').toLowerCase().includes(q) ||
-        (p.destZone || '').toLowerCase().includes(q)
-      );
-    }
-
-    return `
-    <div class="search-bar">
-      <input type="search" id="hist-search" placeholder="Buscar cliente, número..." value="${state.historySearch || ''}">
-    </div>
-    <div class="filter-bar">
-      ${filters.map(f => `
-        <button class="filter-chip${state.historyFilter === f ? ' active' : ''}" data-filter="${f}">${fLabels[f]} ${f === 'all' ? `(${all.length})` : `(${all.filter(p => p.status === f).length})`}</button>
-      `).join('')}
-    </div>
+    const quotes = Storage.getQuotes();
+    if (!quotes.length) return `
     <div class="view-pad">
-      ${filtered.length ? filtered.map(p => proposalItem(p, true)).join('') : `
       <div class="empty-state">
-        <div class="icon">🔍</div>
-        <h3>Sin resultados</h3>
-        <p>No hay propuestas que coincidan con el filtro</p>
-      </div>`}
-    </div>`;
-  }
-
-  function proposalItem(p, showActions = false) {
-    const s = STATUS_MAP[p.status] || STATUS_MAP['Borrador'];
-    const days = daysDiff(p.updatedAt);
-    const settings = Storage.getSettings();
-    const isAlert = (p.status === 'Enviada' || p.status === 'Sin respuesta') && days >= (settings.alertDays || 3);
-    const badgeCls = isAlert ? 'badge-alerta' : `badge-${s.cls}`;
-
-    return `
-    <div class="proposal-item" data-action="view-detail" data-id="${p.id}">
-      <div>
-        <div class="proposal-num">${p.proposalNumber || '---'}</div>
-        <div class="text-sm text-sub mt-8">${fmtDate(p.createdAt)}</div>
-      </div>
-      <div class="proposal-info">
-        <div class="proposal-client">${p.clientName || '(sin nombre)'}</div>
-        <div class="proposal-meta">${p.serviceType || '-'} · ${p.originZone || '-'} → ${p.destZone || '-'}</div>
-        <div class="mt-8"><span class="badge ${badgeCls}">${isAlert ? '⚠️ ' : ''}${s.label}</span></div>
-      </div>
-      <div style="text-align:right">
-        <div class="proposal-price">${p.finalPrice ? Pricing.fmt(p.finalPrice) : '-'}</div>
-        ${showActions ? `
-        <div class="proposal-actions mt-8">
-          <button class="action-btn" data-action="edit-proposal" data-id="${p.id}" title="Editar">✏️</button>
-          <button class="action-btn" data-action="gen-pdf" data-id="${p.id}" title="PDF">📄</button>
-          <button class="action-btn" data-action="delete-proposal" data-id="${p.id}" title="Eliminar">🗑️</button>
-        </div>` : ''}
+        <div class="icon">📋</div>
+        <h3>Sin presupuestos guardados</h3>
+        <p>Todavía no guardaste ningún presupuesto.</p>
       </div>
     </div>`;
-  }
 
-  /* ══════════════════════════════════════════════════════════
-     DETAIL VIEW
-  ══════════════════════════════════════════════════════════ */
-  function renderDetail() {
-    const p = Storage.getProposal(state.detailId);
-    if (!p) return '<div class="view-pad"><p>Propuesta no encontrada.</p></div>';
+    const svcLabels = {
+      miniflete: 'Miniflete', camion: 'Mudanza', reparto: 'Reparto', expreso: 'A expreso'
+    };
+    const zonaLabels = { caba: 'CABA', gba: 'CABA↔GBA', provincia: 'Provincia' };
 
-    const s = STATUS_MAP[p.status] || STATUS_MAP['Borrador'];
-    const breakdown = (p.priceBreakdown || []);
-    const fp = p.finalPrice || 0;
-    const dp = Math.round(fp * 0.3);
-
-    return `
-    <div class="view-pad">
-      <!-- Header card -->
-      <div class="card" style="background:linear-gradient(135deg,var(--red-dark),var(--red));color:#fff;margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div>
-            <div style="font-size:.75rem;opacity:.8">Propuesta</div>
-            <div style="font-size:1.3rem;font-weight:800">${p.proposalNumber || '---'}</div>
-          </div>
-          <div style="text-align:right">
-            <span class="badge badge-${s.cls}">${s.label}</span>
-            <div style="font-size:.75rem;opacity:.8;margin-top:4px">${fmtDate(p.createdAt)}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Client -->
-      <div class="detail-section card">
-        <h3>Cliente</h3>
-        <div class="detail-row"><span class="dl">Empresa/Persona</span><span class="dv">${p.clientName||'-'}</span></div>
-        <div class="detail-row"><span class="dl">Rubro</span><span class="dv">${p.clientRubro||'-'}</span></div>
-        <div class="detail-row"><span class="dl">Contacto</span><span class="dv">${p.clientContact||'-'}</span></div>
-        <div class="detail-row"><span class="dl">Teléfono</span><span class="dv"><a href="tel:${p.clientPhone}">${p.clientPhone||'-'}</a></span></div>
-        ${p.clientEmail ? `<div class="detail-row"><span class="dl">Email</span><span class="dv"><a href="mailto:${p.clientEmail}">${p.clientEmail}</a></span></div>` : ''}
-      </div>
-
-      <!-- Service -->
-      <div class="detail-section card">
-        <h3>Servicio</h3>
-        <div class="detail-row"><span class="dl">Tipo</span><span class="dv">${p.serviceType||'-'}</span></div>
-        ${p.frequency && p.frequency !== 'Puntual' ? `<div class="detail-row"><span class="dl">Frecuencia</span><span class="dv">${p.frequency}</span></div>` : ''}
-        <div class="detail-row"><span class="dl">Origen</span><span class="dv">${p.originZone||'-'}</span></div>
-        <div class="detail-row"><span class="dl">Destino</span><span class="dv">${p.destZone||'-'}</span></div>
-        <div class="detail-row"><span class="dl">Vehículo</span><span class="dv">${Pricing.VEHICLE_LABELS[p.vehicleType]||'-'}</span></div>
-        <div class="detail-row"><span class="dl">Modalidad</span><span class="dv">${{traslado:'Solo traslado',peones:'Con peones',chofer:'Colaboración del chofer'}[p.serviceMode]||'Solo traslado'}</span></div>
-        ${p.serviceMode === 'peones' ? `<div class="detail-row"><span class="dl">Peones / hs</span><span class="dv">${p.peones} peones · ${p.hours} horas</span></div>` : ''}
-        ${p.serviceMode === 'chofer' ? `<div class="detail-row"><span class="dl">Horas</span><span class="dv">${p.hours} horas</span></div>` : ''}
-      </div>
-
-      ${p.inventory ? `
-      <div class="detail-section card">
-        <h3>Inventario</h3>
-        <div style="font-size:.88rem;white-space:pre-wrap;color:var(--text)">${p.inventory}</div>
-      </div>` : ''}
-
-      <!-- Price -->
-      <div class="detail-section card">
-        <h3>Precios</h3>
-        <div class="breakdown-list">
-          ${breakdown.map(i => `
-          <div class="breakdown-item">
-            <span class="b-label">${i.label}</span>
-            <span class="b-amt">${Pricing.fmt(i.amount)}</span>
-          </div>`).join('')}
-        </div>
-        <div style="display:flex;justify-content:space-between;font-weight:800;font-size:1rem;color:var(--red-dark);border-top:2px solid var(--red-dark);padding-top:8px">
-          <span>TOTAL</span><span>${Pricing.fmt(fp)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:.88rem;margin-top:6px">
-          <span>Seña (30%)</span><span>${Pricing.fmt(dp)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:.88rem;margin-top:4px">
-          <span>Saldo</span><span>${Pricing.fmt(fp - dp)}</span>
-        </div>
-      </div>
-
-      ${p.notes ? `<div class="card"><div class="text-sm text-sub fw-700">Notas</div><div class="text-sm mt-8">${p.notes}</div></div>` : ''}
-
-      <!-- Status -->
-      <div class="card">
-        <div class="section-title" style="margin-bottom:10px">Cambiar estado</div>
-        <div class="status-chips">
-          ${STATUS_LIST.map(st => {
-            const sc = STATUS_MAP[st];
-            return `<button class="status-chip chip-${sc.cls}${p.status === st ? ' selected' : ''}" data-action="change-status" data-id="${p.id}" data-status="${st}">${st}</button>`;
-          }).join('')}
-        </div>
-      </div>
-
-      <!-- Actions -->
-      <div class="btn-row mt-8">
-        <button class="btn btn-secondary" data-action="edit-proposal" data-id="${p.id}">✏️ Editar</button>
-        <button class="btn btn-primary" data-action="gen-pdf" data-id="${p.id}">📄 PDF</button>
-      </div>
-      <button class="btn btn-secondary mt-8" data-action="whatsapp" data-id="${p.id}" style="width:100%;background:#25d366;color:#fff;border:none">
-        📱 Compartir por WhatsApp
-      </button>
-      <button class="btn mt-8" style="width:100%;color:var(--danger);font-size:.85rem" data-action="delete-proposal" data-id="${p.id}">
-        🗑️ Eliminar propuesta
-      </button>
-    </div>`;
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     FORM — multi-step
-  ══════════════════════════════════════════════════════════ */
-  function renderForm() {
-    if (!state.form) state.form = blankForm();
-    const d = state.form;
-    const step = state.formStep;
-    const TOTAL_STEPS = 4;
-
-    const stepLabels = ['Cliente', 'Servicio', 'Precio', 'Resumen'];
-    const indicators = Array.from({ length: TOTAL_STEPS }, (_, i) => {
-      const cls = i + 1 < step ? 'done' : i + 1 === step ? 'active' : '';
-      return `<div class="step ${cls}"></div>`;
-    }).join('');
-
-    let content = '';
-    if (step === 1) content = renderStep1(d);
-    else if (step === 2) content = renderStep2(d);
-    else if (step === 3) content = renderStep3(d);
-    else if (step === 4) content = renderStep4(d);
-
-    return `
-    <div class="form-wrap">
-      <div class="step-indicator">
-        ${indicators}
-        <span class="step-label">${stepLabels[step - 1]} ${step}/${TOTAL_STEPS}</span>
-      </div>
-      <div class="form-fields">
-        ${content}
-      </div>
-      <div class="form-actions">
-        <div class="btn-row">
-          ${step > 1 ? `<button class="btn btn-secondary" data-action="form-prev">← Anterior</button>` : ''}
-          ${step < TOTAL_STEPS
-            ? `<button class="btn btn-primary" data-action="form-next">Siguiente →</button>`
-            : `<button class="btn btn-primary" data-action="form-save">💾 Guardar propuesta</button>`}
-        </div>
-        ${step === TOTAL_STEPS ? `<button class="btn btn-success mt-8" style="width:100%" data-action="form-save-pdf">💾 Guardar y generar PDF</button>` : ''}
-      </div>
-    </div>`;
-  }
-
-  function renderStep1(d) {
-    return `
-    <div class="section-divider">Datos del Cliente</div>
-    <div class="field">
-      <label>Empresa o Persona <span class="req">*</span></label>
-      <input type="text" id="f-clientName" value="${esc(d.clientName)}" placeholder="Nombre del cliente">
-    </div>
-    <div class="field">
-      <label>Rubro <span class="req">*</span></label>
-      <select id="f-clientRubro">
-        <option value="">Seleccioná un rubro...</option>
-        ${Pricing.RUBROS.map(r => `<option${d.clientRubro === r ? ' selected' : ''}>${r}</option>`).join('')}
-      </select>
-    </div>
-    <div class="field">
-      <label>Nombre del contacto</label>
-      <input type="text" id="f-clientContact" value="${esc(d.clientContact)}" placeholder="Quién atiende">
-    </div>
-    <div class="field">
-      <label>Teléfono <span class="req">*</span></label>
-      <input type="tel" id="f-clientPhone" value="${esc(d.clientPhone)}" placeholder="11 xxxx-xxxx">
-    </div>
-    <div class="field">
-      <label>Email <span class="text-sub">(opcional)</span></label>
-      <input type="email" id="f-clientEmail" value="${esc(d.clientEmail)}" placeholder="correo@ejemplo.com">
-    </div>`;
-  }
-
-  function renderStep2(d) {
-    const freqVisible = ['Reparto', 'Logística regular'].includes(d.serviceType);
-    return `
-    <div class="section-divider">Datos del Servicio</div>
-    <div class="field">
-      <label>Tipo de servicio <span class="req">*</span></label>
-      <select id="f-serviceType">
-        <option value="">Seleccioná el servicio...</option>
-        ${Pricing.SERVICE_TYPES.map(s => `<option${d.serviceType === s ? ' selected' : ''}>${s}</option>`).join('')}
-      </select>
-    </div>
-    <div class="field${freqVisible ? '' : ' hidden'}" id="field-freq">
-      <label>Frecuencia</label>
-      <select id="f-frequency">
-        ${Pricing.FREQUENCIES.map(f => `<option${d.frequency === f ? ' selected' : ''}>${f}</option>`).join('')}
-      </select>
-    </div>
-    <div class="field">
-      <label>Zona de origen <span class="req">*</span></label>
-      <input type="text" id="f-originZone" value="${esc(d.originZone)}" placeholder="Ej: Palermo">
-    </div>
-    <div class="field">
-      <label>Área de origen</label>
-      <select id="f-originArea">
-        <option value="">Seleccioná el área...</option>
-        <option value="CABA"${d.originArea==='CABA'?' selected':''}>CABA</option>
-        <option value="Zona Norte"${d.originArea==='Zona Norte'?' selected':''}>Zona Norte</option>
-        <option value="Zona Sur"${d.originArea==='Zona Sur'?' selected':''}>Zona Sur</option>
-        <option value="Zona Oeste"${d.originArea==='Zona Oeste'?' selected':''}>Zona Oeste</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>Zona de destino <span class="req">*</span></label>
-      <input type="text" id="f-destZone" value="${esc(d.destZone)}" placeholder="Ej: Belgrano">
-    </div>
-    <div class="field">
-      <label>Área de destino</label>
-      <select id="f-destArea">
-        <option value="">Seleccioná el área...</option>
-        <option value="CABA"${d.destArea==='CABA'?' selected':''}>CABA</option>
-        <option value="Zona Norte"${d.destArea==='Zona Norte'?' selected':''}>Zona Norte</option>
-        <option value="Zona Sur"${d.destArea==='Zona Sur'?' selected':''}>Zona Sur</option>
-        <option value="Zona Oeste"${d.destArea==='Zona Oeste'?' selected':''}>Zona Oeste</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>Inventario / Descripción del traslado</label>
-      <textarea id="f-inventory" placeholder="Detallá qué se traslada: muebles, cajas, electrodomésticos... (protección ante discrepancias)">${esc(d.inventory)}</textarea>
-      <div class="hint">Este detalle quedará en el PDF como respaldo</div>
-    </div>`;
-  }
-
-  function renderStep3(d) {
-    const isUtilitario = d.vehicleType === 'utilitario';
-    const isCamion = d.vehicleType === 'camion';
-    const isCamioneta = d.vehicleType === 'camioneta';
-    const withPeones = d.serviceMode === 'peones';
-    const isChofer = d.serviceMode === 'chofer';
-
-    return `
-    <div class="section-divider">Vehículo</div>
-    <div class="field">
-      <label>Tipo de vehículo <span class="req">*</span></label>
-      <select id="f-vehicleType">
-        <option value="utilitario"${d.vehicleType === 'utilitario' ? ' selected' : ''}>Utilitario (Fiorino/Berlingo)</option>
-        <option value="camioneta"${d.vehicleType === 'camioneta' ? ' selected' : ''}>Camioneta con furgón</option>
-        <option value="camion"${d.vehicleType === 'camion' ? ' selected' : ''}>Camión mudancero</option>
-      </select>
-    </div>
-
-    <div class="field${isUtilitario ? '' : ' hidden'}" id="field-elevator">
-      <label>Acceso en el traslado</label>
-      <select id="f-elevatorMode">
-        <option value="traslado"${(d.elevatorMode||'traslado')==='traslado'?' selected':''}>Solo traslado</option>
-        <option value="ascensor"${d.elevatorMode==='ascensor'?' selected':''}>Ascensor</option>
-        <option value="escalera"${d.elevatorMode==='escalera'?' selected':''}>Escalera</option>
-        <option value="ambos"${d.elevatorMode==='ambos'?' selected':''}>Ascensor y Escalera</option>
-        <option value="desconocido"${d.elevatorMode==='desconocido'?' selected':''}>Aún no lo sé</option>
-      </select>
-    </div>
-
-    <div class="field${isCamioneta ? '' : ' hidden'}" id="field-camioneta-price">
-      <label>Precio de camioneta con furgón <span class="req">*</span></label>
-      <input type="number" id="f-camionetaPrice" value="${d.camionetaPrice || ''}" placeholder="Ej: 55000" inputmode="numeric">
-      <div class="hint">Ingresá el precio acordado para este servicio</div>
-    </div>
-
-    <div class="section-divider">Modalidad</div>
-    <div class="field">
-      <label>Modalidad de servicio</label>
-      <select id="f-serviceMode">
-        <option value="traslado"${d.serviceMode === 'traslado' ? ' selected' : ''}>Solo traslado</option>
-        <option value="peones"${d.serviceMode === 'peones' ? ' selected' : ''}>Con peones</option>
-        <option value="chofer"${d.serviceMode === 'chofer' ? ' selected' : ''}>Colaboración del chofer</option>
-      </select>
-    </div>
-
-    <div class="${(withPeones || isCamion || isChofer) ? '' : 'hidden'}" id="fields-hours">
-      <div class="field">
-        <label>Horas estimadas <span class="req">*</span></label>
-        <input type="number" id="f-hours" value="${d.hours || 2}" min="2" step="0.5" inputmode="decimal">
-        <div class="hint">Mínimo 2 horas · La hora empieza al llegar</div>
-      </div>
-    </div>
-
-    <div class="${withPeones ? '' : 'hidden'}" id="fields-peones">
-      <div class="field">
-        <label>Cantidad de peones</label>
-        <input type="number" id="f-peones" value="${d.peones || 2}" min="2" inputmode="numeric">
-        <div class="hint">Mínimo 2 peones · $25.000/hora por peón</div>
-      </div>
-
-      <div class="section-divider">Escalera / Piso</div>
-      <div class="field-row">
-        <div class="field">
-          <label>Piso origen</label>
-          <select id="f-floorOrigin">
-            ${Pricing.FLOORS.map(f => `<option value="${f.value}"${d.floorOrigin == f.value ? ' selected' : ''}>${f.label}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field">
-          <label>Piso destino</label>
-          <select id="f-floorDest">
-            ${Pricing.FLOORS.map(f => `<option value="${f.value}"${d.floorDest == f.value ? ' selected' : ''}>${f.label}</option>`).join('')}
-          </select>
-        </div>
-      </div>
-      <div class="hint" style="margin-top:-8px;margin-bottom:10px">P1: $30k · P2: $50k · P3: $70k · P4: $80k · P5+: $80k+$20k/piso (por peón)</div>
-
-      <div class="field">
-        <label>Bultos sueltos</label>
-        <input type="number" id="f-looseItems" value="${d.looseItems || 0}" min="0" inputmode="numeric">
-        <div class="hint">$5.000 por piso por bulto (precio por los dos peones)</div>
-      </div>
-    </div>`;
-  }
-
-  function renderStep4(d) {
-    const { total, breakdown } = Pricing.calculate(d);
-    const finalPrice = d.finalPrice || total;
-    const downPayment = Math.round(finalPrice * 0.3);
-
-    // Save calculated values
-    state.form.basePrice = total;
-    state.form.priceBreakdown = breakdown;
-    if (!d.finalPrice || d.finalPrice === d.basePrice) {
-      state.form.finalPrice = total;
-    }
-
-    return `
-    <div class="section-divider">Resumen y Precio</div>
-    <div class="price-display">
-      <div class="label">Precio calculado automáticamente</div>
-      <div class="amount">${Pricing.fmt(total)}</div>
-      <div class="senia">Seña (30%): ${Pricing.fmt(Math.round(total * 0.3))}</div>
-    </div>
-
-    <div class="field">
-      <label>Precio final ajustado</label>
-      <input type="number" id="f-finalPrice" value="${finalPrice}" inputmode="numeric" step="1000">
-      <div class="hint">Podés ajustar el precio calculado. Seña = 30% = <strong id="senia-display">${Pricing.fmt(downPayment)}</strong></div>
-    </div>
-
-    <div class="field">
-      <label>Estado de la propuesta</label>
-      <div class="status-chips" style="margin-top:4px">
-        ${STATUS_LIST.map(st => {
-          const sc = STATUS_MAP[st];
-          return `<button type="button" class="status-chip chip-${sc.cls}${d.status === st ? ' selected' : ''}" data-action="set-status" data-status="${st}">${st}</button>`;
-        }).join('')}
-      </div>
-    </div>
-
-    <div class="field">
-      <label>Notas adicionales</label>
-      <textarea id="f-notes" placeholder="Aclaraciones, condiciones especiales...">${esc(d.notes || '')}</textarea>
-    </div>
-
-    <div class="card" style="background:#f8f8f8">
-      <div class="section-title">Resumen del servicio</div>
-      <div class="detail-row"><span class="dl">Cliente</span><span class="dv">${d.clientName||'-'}</span></div>
-      <div class="detail-row"><span class="dl">Servicio</span><span class="dv">${d.serviceType||'-'}</span></div>
-      <div class="detail-row"><span class="dl">Vehículo</span><span class="dv">${Pricing.VEHICLE_LABELS[d.vehicleType]||'-'}</span></div>
-      <div class="detail-row"><span class="dl">Origen → Destino</span><span class="dv">${d.originZone||'-'} → ${d.destZone||'-'}</span></div>
-    </div>`;
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     STATS
-  ══════════════════════════════════════════════════════════ */
-  function renderStats() {
-    const proposals = Storage.getProposals();
-    if (!proposals.length) return `
-    <div class="view-pad">
-      <div class="empty-state"><div class="icon">📊</div><h3>Sin datos aún</h3><p>Creá propuestas para ver estadísticas</p></div>
-    </div>`;
-
-    const total = proposals.length;
-    const accepted = proposals.filter(p => p.status === 'Aceptada');
-    const rate = Math.round((accepted.length / total) * 100);
-
-    // By service type
-    const byService = {};
-    proposals.forEach(p => {
-      if (!p.serviceType) return;
-      if (!byService[p.serviceType]) byService[p.serviceType] = { total: 0, accepted: 0, revenue: 0 };
-      byService[p.serviceType].total++;
-      if (p.status === 'Aceptada') { byService[p.serviceType].accepted++; byService[p.serviceType].revenue += (p.finalPrice || 0); }
-    });
-
-    // By zone (origin)
-    const byZone = {};
-    proposals.forEach(p => {
-      const z = (p.originZone || 'Sin zona').split(' ')[0];
-      byZone[z] = (byZone[z] || 0) + 1;
-    });
-    const topZones = Object.entries(byZone).sort((a, b) => b[1] - a[1]).slice(0, 5);
-    const maxZone = topZones[0]?.[1] || 1;
-
-    // Avg accepted price
-    const avgPrice = accepted.length
-      ? Math.round(accepted.reduce((s, p) => s + (p.finalPrice || 0), 0) / accepted.length)
-      : 0;
-
-    // Monthly (last 6 months)
-    const now = new Date();
-    const months = Array.from({ length: 6 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-      return { label: d.toLocaleDateString('es-AR', { month: 'short' }), year: d.getFullYear(), month: d.getMonth() };
-    });
-    const monthlyData = months.map(m => ({
-      ...m,
-      count: proposals.filter(p => {
-        const d = new Date(p.createdAt);
-        return d.getFullYear() === m.year && d.getMonth() === m.month;
-      }).length
-    }));
-    const maxMonth = Math.max(...monthlyData.map(m => m.count), 1);
-
-    return `
-    <div class="view-pad">
-      <div class="stats-grid">
-        <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-label">Total</div></div>
-        <div class="stat-card"><div class="stat-num" style="color:var(--success)">${accepted.length}</div><div class="stat-label">Aceptadas</div></div>
-        <div class="stat-card"><div class="stat-num">${rate}%</div><div class="stat-label">Tasa cierre</div></div>
-        <div class="stat-card"><div class="stat-num" style="font-size:1.1rem">${avgPrice ? Pricing.fmt(avgPrice) : '-'}</div><div class="stat-label">Precio promedio</div></div>
-      </div>
-
-      <div class="card">
-        <div class="section-title">Propuestas por mes (últimos 6)</div>
-        <div style="display:flex;align-items:flex-end;gap:6px;height:80px;margin-top:10px">
-          ${monthlyData.map(m => `
-          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
-            <div style="font-size:.65rem;color:var(--text-sub)">${m.count || ''}</div>
-            <div style="width:100%;background:var(--red-dark);border-radius:3px 3px 0 0;height:${Math.max(4, (m.count / maxMonth) * 60)}px"></div>
-            <div style="font-size:.62rem;color:var(--text-sub)">${m.label}</div>
-          </div>`).join('')}
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="section-title">Por tipo de servicio</div>
-        ${Object.entries(byService).sort((a, b) => b[1].total - a[1].total).map(([svc, data]) => {
-          const r = data.total ? Math.round((data.accepted / data.total) * 100) : 0;
-          return `
-          <div class="stat-bar">
-            <div class="stat-bar-label">
-              <span>${svc}</span>
-              <span style="color:var(--text-sub)">${data.accepted}/${data.total} (${r}%)</span>
-            </div>
-            <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${r}%"></div></div>
-          </div>`;
-        }).join('')}
-      </div>
-
-      <div class="card">
-        <div class="section-title">Zonas más activas (origen)</div>
-        ${topZones.map(([zone, count]) => `
-        <div class="stat-bar">
-          <div class="stat-bar-label"><span>${zone}</span><span>${count} propuesta${count > 1 ? 's' : ''}</span></div>
-          <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${Math.round((count / maxZone) * 100)}%"></div></div>
-        </div>`).join('')}
-      </div>
-    </div>`;
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     SETTINGS
-  ══════════════════════════════════════════════════════════ */
-  function renderSettings() {
-    const s = Storage.getSettings();
-    const total = Storage.getProposals().length;
-
-    return `
-    <div class="view-pad">
-      <div class="card">
-        <div class="section-title">Miniflete TyM</div>
-        <div class="detail-row"><span class="dl">Tel/WA</span><span class="dv">11 6455-4602</span></div>
-        <div class="detail-row"><span class="dl">Email</span><span class="dv">minifletestym@gmail.com</span></div>
-        <div class="detail-row"><span class="dl">Web</span><span class="dv">minifletetym.com.ar</span></div>
-      </div>
-
-      <div class="settings-item card">
-        <div>
-          <div class="title">Alerta sin respuesta</div>
-          <div class="sub">Propuestas enviadas sin respuesta</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <input type="number" id="s-alertDays" value="${s.alertDays}" min="1" max="30"
-            style="width:55px;text-align:center;padding:6px">
-          <span style="font-size:.8rem;color:var(--text-sub)">días</span>
-        </div>
-      </div>
-      <button class="btn btn-primary mt-8" data-action="save-settings" style="margin-bottom:14px">Guardar configuración</button>
-
-      <div class="section-title">Datos — ${total} propuestas guardadas</div>
-      <div class="btn-row">
-        <button class="btn btn-secondary btn-sm" data-action="export-data">📤 Exportar</button>
-        <button class="btn btn-secondary btn-sm" data-action="import-data">📥 Importar</button>
-      </div>
-      <input type="file" id="import-file" accept=".json" class="hidden">
-
-      <button class="btn btn-danger mt-12" style="width:100%" data-action="clear-data">🗑️ Borrar todos los datos</button>
-
-      <div class="card mt-12" style="text-align:center;color:var(--text-sub);font-size:.78rem">
-        <div>Miniflete TyM · Generador de Propuestas</div>
-        <div style="margin-top:4px">Datos guardados localmente en tu dispositivo</div>
-      </div>
-    </div>`;
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     FORM VALIDATION & COLLECT
-  ══════════════════════════════════════════════════════════ */
-  function collectForm() {
-    const d = state.form;
-    const v = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
-    const cb = (id) => { const el = document.getElementById(id); return el ? el.checked : false; };
-
-    if (state.formStep === 1) {
-      d.clientName    = v('f-clientName').trim();
-      d.clientRubro   = v('f-clientRubro');
-      d.clientContact = v('f-clientContact').trim();
-      d.clientPhone   = v('f-clientPhone').trim();
-      d.clientEmail   = v('f-clientEmail').trim();
-    } else if (state.formStep === 2) {
-      d.serviceType = v('f-serviceType');
-      d.frequency   = v('f-frequency') || 'Puntual';
-      d.originZone  = v('f-originZone').trim();
-      d.originArea  = v('f-originArea');
-      d.destZone    = v('f-destZone').trim();
-      d.destArea    = v('f-destArea');
-      d.inventory   = v('f-inventory').trim();
-    } else if (state.formStep === 3) {
-      d.vehicleType    = v('f-vehicleType');
-      d.elevatorMode   = v('f-elevatorMode') || 'traslado';
-      d.camionetaPrice = v('f-camionetaPrice');
-      d.serviceMode    = v('f-serviceMode');
-      d.hours          = parseFloat(v('f-hours')) || 2;
-      d.peones         = parseInt(v('f-peones')) || 2;
-      d.floorOrigin    = parseInt(v('f-floorOrigin')) || 0;
-      d.floorDest      = parseInt(v('f-floorDest')) || 0;
-      d.looseItems     = parseInt(v('f-looseItems')) || 0;
-    } else if (state.formStep === 4) {
-      d.finalPrice = parseFloat(v('f-finalPrice')) || d.basePrice;
-      d.notes      = v('f-notes').trim();
-    }
-  }
-
-  function validateStep() {
-    const d = state.form;
-    if (state.formStep === 1) {
-      if (!d.clientName) { toast('Ingresá el nombre del cliente'); return false; }
-      if (!d.clientRubro) { toast('Seleccioná el rubro'); return false; }
-      if (!d.clientPhone) { toast('Ingresá el teléfono'); return false; }
-    } else if (state.formStep === 2) {
-      if (!d.serviceType) { toast('Seleccioná el tipo de servicio'); return false; }
-      if (!d.originZone) { toast('Ingresá la zona de origen'); return false; }
-      if (!d.destZone) { toast('Ingresá la zona de destino'); return false; }
-    } else if (state.formStep === 3) {
-      if (d.vehicleType === 'camioneta' && !d.camionetaPrice) { toast('Ingresá el precio de la camioneta'); return false; }
-    } else if (state.formStep === 4) {
-      if (!d.finalPrice || d.finalPrice <= 0) { toast('El precio final debe ser mayor a $0'); return false; }
-    }
-    return true;
-  }
-
-  function saveProposal(andGenPDF = false) {
-    collectForm();
-    const d = state.form;
-
-    // Assign proposal number on first save
-    if (!d.proposalNumber) {
-      const prefix = Pricing.VEHICLE_PREFIXES[d.vehicleType] || '1';
-      d.proposalNumber = Storage.nextNumber(prefix);
-    }
-
-    // Recalculate breakdown
-    const { total, breakdown } = Pricing.calculate(d);
-    d.basePrice = total;
-    d.priceBreakdown = breakdown;
-    if (!d.finalPrice) d.finalPrice = total;
-
-    Storage.saveProposal(d);
-    toast(`Propuesta ${d.proposalNumber} guardada ✓`);
-
-    if (andGenPDF) {
-      PDFGenerator.generate(d);
-    }
-
-    navigate('detail', { detailId: d.id });
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     EVENT BINDING
-  ══════════════════════════════════════════════════════════ */
-  function bindEvents() {
-    // Delegated click handler
-    document.getElementById('main-content').addEventListener('click', handleClick);
-
-    // Bottom nav
-    document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const v = btn.dataset.view;
-        if (v === 'form') startNewProposal();
-        else navigate(v);
-      });
-    });
-
-    // Back button
-    document.getElementById('btn-back').addEventListener('click', () => {
-      if (state.view === 'form' && state.formStep > 1) {
-        collectForm();
-        state.formStep--;
-        render();
-      } else {
-        navigate('home');
-      }
-    });
-
-    // Form: live price update on step 4
-    if (state.view === 'form' && state.formStep === 4) {
-      const fp = document.getElementById('f-finalPrice');
-      if (fp) {
-        fp.addEventListener('input', () => {
-          const val = parseFloat(fp.value) || 0;
-          const sd = document.getElementById('senia-display');
-          if (sd) sd.textContent = Pricing.fmt(Math.round(val * 0.3));
+    return `<div class="view-pad">
+      ${quotes.map(q => {
+        const f = q.form || {};
+        const desc = (f.descripcionCarga || '').slice(0, 40) + (f.descripcionCarga?.length > 40 ? '…' : '');
+        const dt = new Date(q.savedAt).toLocaleString('es-AR', {
+          day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit'
         });
+        return `
+        <div class="quote-item card">
+          <div class="quote-header">
+            <div>
+              <div class="quote-svc">${svcLabels[f.serviceType] || '-'} · ${zonaLabels[f.zona] || '-'}</div>
+              <div class="quote-date">${dt}</div>
+            </div>
+            <div class="quote-total">${Pricing.formatMonto(q.totalFinal)}</div>
+          </div>
+          <div class="quote-desc">${esc(desc) || '-'}</div>
+          <div class="quote-actions">
+            <button class="btn btn-secondary btn-sm" data-action="ver-mensaje" data-id="${q.id}">Ver mensaje</button>
+            <button class="btn btn-danger btn-sm" data-action="eliminar" data-id="${q.id}">🗑 Eliminar</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  function bindHistoryEvents() {
+    document.getElementById('main-content').addEventListener('click', e => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const id = btn.dataset.id;
+      if (btn.dataset.action === 'ver-mensaje') {
+        const q = Storage.getQuote(id);
+        if (!q) return;
+        showMessageModal(q.message);
       }
-    }
-
-    // Form: show/hide conditional fields on step 2 & 3
-    if (state.view === 'form' && state.formStep === 2) {
-      const stEl = document.getElementById('f-serviceType');
-      if (stEl) stEl.addEventListener('change', () => {
-        const freqField = document.getElementById('field-freq');
-        if (freqField) freqField.classList.toggle('hidden',
-          !['Reparto', 'Logística regular'].includes(stEl.value));
-      });
-    }
-
-    if (state.view === 'form' && state.formStep === 3) {
-      const vtEl = document.getElementById('f-vehicleType');
-      const smEl = document.getElementById('f-serviceMode');
-      const toggleStep3 = () => {
-        const vt = vtEl?.value;
-        const sm = smEl?.value;
-        document.getElementById('field-elevator')?.classList.toggle('hidden', vt !== 'utilitario');
-        document.getElementById('field-camioneta-price')?.classList.toggle('hidden', vt !== 'camioneta');
-        document.getElementById('fields-hours')?.classList.toggle('hidden', sm !== 'peones' && vt !== 'camion' && sm !== 'chofer');
-        document.getElementById('fields-peones')?.classList.toggle('hidden', sm !== 'peones');
-      };
-      vtEl?.addEventListener('change', toggleStep3);
-      smEl?.addEventListener('change', toggleStep3);
-    }
-
-    // Search
-    const searchEl = document.getElementById('hist-search');
-    if (searchEl) {
-      searchEl.addEventListener('input', () => {
-        state.historySearch = searchEl.value;
-        const main = document.getElementById('main-content');
-        main.innerHTML = renderHistory();
-        bindEvents();
-      });
-    }
-
-    // Filter chips
-    document.querySelectorAll('.filter-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        state.historyFilter = chip.dataset.filter;
-        const main = document.getElementById('main-content');
-        main.innerHTML = renderHistory();
-        bindEvents();
-      });
+      if (btn.dataset.action === 'eliminar') {
+        confirmDeleteQuote(id);
+      }
     });
-
-    // Import file
-    const importEl = document.getElementById('import-file');
-    if (importEl) {
-      importEl.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          try {
-            Storage.importAll(ev.target.result);
-            toast('Datos importados correctamente ✓');
-            render();
-          } catch {
-            toast('Error al importar. Verificá el archivo.');
-          }
-        };
-        reader.readAsText(file);
-      });
-    }
   }
 
-  function handleClick(e) {
-    const btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    const action = btn.dataset.action;
-    const id = btn.dataset.id;
-
-    switch (action) {
-      case 'new-proposal': startNewProposal(); break;
-      case 'go-history': navigate('history'); break;
-      case 'view-detail': navigate('detail', { detailId: id }); break;
-      case 'edit-proposal': editProposal(id); break;
-      case 'gen-pdf': {
-        const p = Storage.getProposal(id);
-        if (p) PDFGenerator.generate(p);
-        break;
-      }
-      case 'delete-proposal': confirmDelete(id); break;
-      case 'change-status': {
-        const p = Storage.getProposal(id);
-        if (p) { p.status = btn.dataset.status; Storage.saveProposal(p); toast(`Estado: ${p.status}`); render(); }
-        break;
-      }
-      case 'set-status': {
-        state.form.status = btn.dataset.status;
-        document.querySelectorAll('[data-action="set-status"]').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        break;
-      }
-      case 'whatsapp': {
-        const p = Storage.getProposal(id);
-        if (p) shareWhatsApp(p);
-        break;
-      }
-      case 'form-next':
-        collectForm();
-        if (validateStep()) { state.formStep++; render(); }
-        break;
-      case 'form-prev':
-        collectForm();
-        state.formStep--;
-        render();
-        break;
-      case 'form-save':
-        collectForm();
-        if (validateStep()) saveProposal(false);
-        break;
-      case 'form-save-pdf':
-        collectForm();
-        if (validateStep()) saveProposal(true);
-        break;
-      case 'save-settings': {
-        const days = parseInt(document.getElementById('s-alertDays')?.value) || 3;
-        Storage.saveSettings({ alertDays: days });
-        toast('Configuración guardada ✓');
-        break;
-      }
-      case 'export-data': {
-        const data = Storage.exportAll();
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
-        a.download = `minifleteTyM_backup_${new Date().toISOString().slice(0, 10)}.json`;
-        a.click();
-        break;
-      }
-      case 'import-data':
-        document.getElementById('import-file')?.click();
-        break;
-      case 'clear-data':
-        showClearConfirm();
-        break;
-    }
-  }
-
-  /* ── HELPERS ────────────────────────────────────────────── */
-  function startNewProposal() {
-    state.form = blankForm();
-    state.formStep = 1;
-    navigate('form');
-  }
-
-  function editProposal(id) {
-    const p = Storage.getProposal(id);
-    if (!p) return;
-    state.form = { ...p };
-    state.formStep = 1;
-    navigate('form');
-  }
-
-  function confirmDelete(id) {
-    const p = Storage.getProposal(id);
-    if (!p) return;
+  function showMessageModal(msg) {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.innerHTML = `
     <div class="modal">
-      <h2>¿Eliminar propuesta?</h2>
-      <p class="text-sm text-sub" style="margin-bottom:16px">${p.proposalNumber} – ${p.clientName}</p>
+      <h2>Mensaje de WhatsApp</h2>
+      <textarea class="message-box" style="margin-bottom:16px" readonly>${esc(msg)}</textarea>
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="modal-close">Cerrar</button>
+        <button class="btn btn-copy" id="modal-copy">📋 Copiar</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#modal-close').onclick = () => overlay.remove();
+    overlay.querySelector('#modal-copy').onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(msg);
+        toast('Mensaje copiado ✓');
+      } catch { document.execCommand('copy'); }
+      overlay.remove();
+    };
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  }
+
+  function confirmDeleteQuote(id) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+    <div class="modal">
+      <h2>¿Eliminar presupuesto?</h2>
+      <p>Esta acción no se puede deshacer.</p>
       <div class="btn-row">
         <button class="btn btn-secondary" id="cancel-del">Cancelar</button>
         <button class="btn btn-danger" id="confirm-del">Eliminar</button>
@@ -1042,56 +598,152 @@ const App = (() => {
     document.body.appendChild(overlay);
     overlay.querySelector('#cancel-del').onclick = () => overlay.remove();
     overlay.querySelector('#confirm-del').onclick = () => {
-      Storage.deleteProposal(id);
+      Storage.deleteQuote(id);
       overlay.remove();
-      toast('Propuesta eliminada');
+      toast('Presupuesto eliminado');
       navigate('history');
     };
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   }
 
-  function showClearConfirm() {
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
-    <div class="modal">
-      <h2>⚠️ Borrar todos los datos</h2>
-      <p class="text-sm text-sub" style="margin-bottom:16px">Esta acción no se puede deshacer. Se eliminarán todas las propuestas y el historial.</p>
-      <div class="btn-row">
-        <button class="btn btn-secondary" id="cancel-clear">Cancelar</button>
-        <button class="btn btn-danger" id="confirm-clear">Sí, borrar todo</button>
-      </div>
+  /* ══════════════════════════════════════════════════════════
+     SETTINGS
+  ══════════════════════════════════════════════════════════ */
+  function renderSettings() {
+    const cfg = Pricing.getConfig();
+    const m = cfg.miniflete;
+    const c = cfg.camion;
+    const r = cfg.reparto;
+
+    const numField = (id, val, label) => `
+    <div class="field">
+      <label>${label}</label>
+      <input type="number" id="${id}" value="${val}" inputmode="numeric" step="500">
     </div>`;
-    document.body.appendChild(overlay);
-    overlay.querySelector('#cancel-clear').onclick = () => overlay.remove();
-    overlay.querySelector('#confirm-clear').onclick = () => {
-      Storage.clearAll();
-      overlay.remove();
-      toast('Todos los datos eliminados');
-      navigate('home');
-    };
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    return `
+    <div class="view-pad">
+      <div class="card">
+        <div class="section-title">Miniflete / Expreso</div>
+        ${numField('s-base-caba', m.base_caba, 'Base – Solo CABA')}
+        ${numField('s-base-gba', m.base_gba, 'Base – CABA ↔ GBA')}
+        ${numField('s-base-provincia', m.base_provincia, 'Base – CABA ↔ Provincia')}
+        ${numField('s-ascensor-chofer', m.ascensor_chofer, 'Ascensor (ayuda del chofer)')}
+        ${numField('s-ascensor-peon', m.ascensor_peon, 'Ascensor (con peón)')}
+        ${numField('s-esc-bultos', m.escalera_bultos_por_piso, 'Escalera – por bulto × piso')}
+        ${numField('s-esc-p1', m.escalera_completa_piso1, 'Escalera completa – Piso 1')}
+        ${numField('s-esc-p2', m.escalera_completa_piso2, 'Escalera completa – Piso 2')}
+        ${numField('s-esc-p3', m.escalera_completa_piso3, 'Escalera completa – Piso 3')}
+        ${numField('s-esc-p4', m.escalera_completa_piso4, 'Escalera completa – Piso 4')}
+        ${numField('s-esc-p5', m.escalera_completa_piso5, 'Escalera completa – Piso 5')}
+        ${numField('s-esc-extra', m.escalera_completa_incremento_extra, 'Escalera completa – incremento piso 6+')}
+      </div>
+
+      <div class="card">
+        <div class="section-title">Mudanza con camión</div>
+        ${numField('s-cam-h-caba', c.hora_caba, 'Tarifa hora – CABA')}
+        ${numField('s-cam-h-gba', c.hora_gba, 'Tarifa hora – GBA')}
+        ${numField('s-cam-h-prov', c.hora_provincia, 'Tarifa hora – Provincia')}
+        <div class="field">
+          <label>Mínimo horas – CABA</label>
+          <input type="number" id="s-cam-min-caba" value="${c.minimo_caba_horas}" step="0.5" inputmode="decimal">
+        </div>
+        <div class="field">
+          <label>Mínimo horas – GBA</label>
+          <input type="number" id="s-cam-min-gba" value="${c.minimo_gba_horas}" step="0.5" inputmode="decimal">
+        </div>
+        <div class="field">
+          <label>Mínimo horas – Provincia</label>
+          <input type="number" id="s-cam-min-prov" value="${c.minimo_provincia_horas}" step="0.5" inputmode="decimal">
+        </div>
+        ${numField('s-peon-caba', c.peon_hora_caba, 'Peón/hora – CABA')}
+        ${numField('s-peon-gba', c.peon_hora_gba, 'Peón/hora – GBA')}
+        ${numField('s-peon-prov', c.peon_hora_provincia, 'Peón/hora – Provincia')}
+      </div>
+
+      <div class="card">
+        <div class="section-title">Reparto de mercadería</div>
+        ${numField('s-rep-est', r.hora_estandar, 'Tarifa hora – Estándar')}
+        ${numField('s-rep-alto', r.hora_volumen_alto, 'Tarifa hora – Alto volumen')}
+        <div class="field">
+          <label>Mínimo de horas</label>
+          <input type="number" id="s-rep-min" value="${r.minimo_horas}" step="0.5" inputmode="decimal">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-save-settings">💾 Guardar cambios</button>
+      <button class="btn btn-secondary mt-12" id="btn-reset-settings">↺ Restaurar valores por defecto</button>
+      <div style="height:20px"></div>
+    </div>`;
   }
 
-  function shareWhatsApp(p) {
-    const fp = p.finalPrice || 0;
-    const dp = Math.round(fp * 0.3);
-    const msg = `Hola! Te comparto la propuesta *${p.proposalNumber}* de *Miniflete TyM*:
+  function bindSettingsEvents() {
+    const v = id => parseFloat(document.getElementById(id)?.value) || 0;
 
-📦 *Servicio:* ${p.serviceType || '-'}
-📍 *Origen:* ${p.originZone || '-'}
-📍 *Destino:* ${p.destZone || '-'}
-🚛 *Vehículo:* ${Pricing.VEHICLE_LABELS[p.vehicleType] || '-'}
-💰 *Total:* ${Pricing.fmt(fp)}
-💳 *Seña (30%):* ${Pricing.fmt(dp)}
+    document.getElementById('btn-save-settings')?.addEventListener('click', () => {
+      const cfg = {
+        miniflete: {
+          base_caba: v('s-base-caba'),
+          base_gba: v('s-base-gba'),
+          base_provincia: v('s-base-provincia'),
+          ascensor_chofer: v('s-ascensor-chofer'),
+          ascensor_peon: v('s-ascensor-peon'),
+          escalera_bultos_por_piso: v('s-esc-bultos'),
+          escalera_completa_piso1: v('s-esc-p1'),
+          escalera_completa_piso2: v('s-esc-p2'),
+          escalera_completa_piso3: v('s-esc-p3'),
+          escalera_completa_piso4: v('s-esc-p4'),
+          escalera_completa_piso5: v('s-esc-p5'),
+          escalera_completa_incremento_extra: v('s-esc-extra')
+        },
+        camion: {
+          hora_caba: v('s-cam-h-caba'),
+          hora_gba: v('s-cam-h-gba'),
+          hora_provincia: v('s-cam-h-prov'),
+          minimo_caba_horas: v('s-cam-min-caba'),
+          minimo_gba_horas: v('s-cam-min-gba'),
+          minimo_provincia_horas: v('s-cam-min-prov'),
+          peon_hora_caba: v('s-peon-caba'),
+          peon_hora_gba: v('s-peon-gba'),
+          peon_hora_provincia: v('s-peon-prov')
+        },
+        reparto: {
+          hora_estandar: v('s-rep-est'),
+          hora_volumen_alto: v('s-rep-alto'),
+          minimo_horas: v('s-rep-min')
+        }
+      };
+      Storage.saveTarifas(cfg);
+      toast('Tarifas guardadas ✓');
+    });
 
-📞 Miniflete TyM: 11 6455-4602
-🌐 www.minifletetym.com.ar`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+    document.getElementById('btn-reset-settings')?.addEventListener('click', () => {
+      Storage.clearTarifas();
+      toast('Valores restaurados ✓');
+      navigate('settings');
+    });
   }
 
-  function esc(str) {
-    return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  /* ── PWA INSTALL BANNER ─────────────────────────────────── */
+  function setupInstallBanner() {
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      state.installPrompt = e;
+      const banner = document.getElementById('install-banner');
+      if (banner) banner.classList.remove('hidden');
+    });
+    document.getElementById('btn-install')?.addEventListener('click', async () => {
+      if (!state.installPrompt) return;
+      state.installPrompt.prompt();
+      const { outcome } = await state.installPrompt.userChoice;
+      if (outcome === 'accepted') {
+        document.getElementById('install-banner')?.classList.add('hidden');
+        state.installPrompt = null;
+      }
+    });
+    document.getElementById('btn-install-close')?.addEventListener('click', () => {
+      document.getElementById('install-banner')?.classList.add('hidden');
+    });
   }
 
   /* ── INIT ───────────────────────────────────────────────── */
@@ -1099,7 +751,13 @@ const App = (() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
-    PDFGenerator.preload();
+    state.form = blankForm();
+
+    document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+      btn.addEventListener('click', () => navigate(btn.dataset.view));
+    });
+
+    setupInstallBanner();
     render();
   }
 
