@@ -1118,7 +1118,11 @@
       + '<button class="btn-nav" id="btn-mes-next">›</button>'
       + '</div>'
       + '<div class="section-header"><span>Caja mensual</span></div>'
-      + tableHtml;
+      + tableHtml
+      + '<div class="tools-section">'
+      + '<div class="section-header"><span>Herramientas</span></div>'
+      + '<button class="btn-outline btn-tools" id="btn-exportar-backup">⬇ Exportar backup JSON</button>'
+      + '</div>';
   }
 
   function bindCaja(main) {
@@ -1134,6 +1138,29 @@
       S.cajaYear = n.year; S.cajaMonth = n.month;
       main.innerHTML = buildCaja(); bindCaja(main);
     });
+
+    var btnExp = document.getElementById('btn-exportar-backup');
+    if (btnExp) btnExp.addEventListener('click', exportBackup);
+  }
+
+  function exportBackup() {
+    var data = {
+      version:    'mtym_backup_v1',
+      exportedAt: new Date().toISOString(),
+      jobs:       getAll(),
+      gastos:     getAllGastos(),
+    };
+    var json = JSON.stringify(data, null, 2);
+    var blob = new Blob([json], { type: 'application/json' });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'miniflete-backup-' + getTodayStr() + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Backup descargado ✓');
   }
 
 })();

@@ -55,3 +55,5 @@ function saveGastos(fechaStr, unidadId, amount) {
   else delete all[key];
   _saveGastos(all);
 }
+
+function getAllGastos() { return _loadGastos(); }

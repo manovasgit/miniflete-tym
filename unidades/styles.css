@@ -510,6 +510,15 @@ body {
   margin-bottom: 10px;
 }
 
+/* ── Tools section (Caja) ──────────────────────────────────────────────── */
+.tools-section {
+  margin-top: 8px;
+  padding: 0 16px 16px;
+}
+.btn-tools {
+  margin-top: 4px;
+}
+
 /* ── Toast ─────────────────────────────────────────────────────────────── */
 #toast {
   position: fixed;
