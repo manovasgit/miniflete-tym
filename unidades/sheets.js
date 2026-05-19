@@ -118,7 +118,7 @@ const GS = (function () {
   // ── Mapeo job → fila del sheet ───────────────────────────────────────────
   // Columnas: A-ID B-Fecha C-Unidad D-Cliente E-Origen F-Destino
   //           G-PrecioCamioneta H-Peones I-Escalera J-Gastos
-  //           K-Estado L-Comanda M-Ganancia N-Timestamp
+  //           K-Estado L-Comanda M-Ganancia N-Timestamp O-JSON
   function jobToRow(job, gastos) {
     var u       = (typeof getUnidad === 'function') ? getUnidad(job.unidad) : null;
     var origen  = [job.barrioRetiro,  job.calleRetiro ].filter(Boolean).join(' - ');
@@ -135,19 +135,20 @@ const GS = (function () {
       job.adicionales      || 0,
       gastos               !== undefined ? gastos : 0,
       job.estado           || '',
-      '',                                           // L: Comanda (no se guarda)
+      '',                          // L: Comanda (no se guarda)
       job.gananciaNeta     || 0,
       job.actualizadoEn    || Date.now(),
+      JSON.stringify(job),         // O: JSON completo para reconstrucción fiel
     ];
   }
 
   // ── CRUD ─────────────────────────────────────────────────────────────────
   function readAll() {
-    return _req('GET', '/values/' + encodeURIComponent(SHEET_NAME + '!A:N'));
+    return _req('GET', '/values/' + encodeURIComponent(SHEET_NAME + '!A:O'));
   }
 
   function appendJob(job, gastos) {
-    var range = SHEET_NAME + '!A:N';
+    var range = SHEET_NAME + '!A:O';
     return _req('POST',
       '/values/' + encodeURIComponent(range) +
       ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
@@ -156,7 +157,7 @@ const GS = (function () {
   }
 
   function updateJob(rowNum, job, gastos) {
-    var range = SHEET_NAME + '!A' + rowNum + ':N' + rowNum;
+    var range = SHEET_NAME + '!A' + rowNum + ':O' + rowNum;
     return _req('PUT',
       '/values/' + encodeURIComponent(range) + '?valueInputOption=USER_ENTERED',
       { values: [jobToRow(job, gastos)] }

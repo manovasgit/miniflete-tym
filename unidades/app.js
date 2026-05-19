@@ -15,20 +15,6 @@
     resumenFecha: getTodayStr(),
   };
 
-  const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwKX-oZ4mmX2zHyTfesMUPO_ltXht5mk6IAsDO8RXJIEd1TmYgnt6BS9NpYse0nwfGw/exec';
-
-  function syncJob(job, gastosDelDia) {
-    if (!SHEETS_URL) return;
-    var payload = Object.assign({}, job);
-    if (gastosDelDia !== undefined) payload.gastos = gastosDelDia;
-    fetch(SHEETS_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      headers: { 'Content-Type': 'text/plain' },
-      mode: 'no-cors'
-    }).catch(function () {});
-  }
-
   const ESTADO_LABELS = {
     nuevo:      'Nuevo',
     confirmado: 'Confirmado',
@@ -41,7 +27,17 @@
     registerSW();
     setupBottomNav();
     initSwipe();
-    render();
+
+    if (GS.isConnected()) {
+      document.getElementById('main').innerHTML =
+        '<div class="loading"><div class="spinner"></div><p>Sincronizando…</p></div>';
+      initFromSheets().then(function (result) {
+        render();
+        if (result.source === 'sheets') showToast('Datos sincronizados ✓');
+      });
+    } else {
+      render();
+    }
   });
 
   function registerSW() {
@@ -455,7 +451,8 @@
       comprobante:    existing ? existing.comprobante     : 'no_aplica',
     };
 
-    saveJob(job);
+    var savedJob = saveJob(job);
+    syncJobToSheet(savedJob);
     showToast(editId ? 'Trabajo actualizado ✓' : 'Trabajo guardado ✓');
 
     if (editId) {
@@ -671,7 +668,8 @@
 
     on('btn-cancelar-job', function () {
       if (!confirm('¿Cancelar este trabajo?')) return;
-      saveJob(Object.assign({}, j, { estado: 'cancelado' }));
+      var savedCan = saveJob(Object.assign({}, j, { estado: 'cancelado' }));
+      syncJobToSheet(savedCan);
       showToast('Trabajo cancelado');
       S.ovPage = 'view';
       renderOverlay();
@@ -681,6 +679,7 @@
     on('btn-eliminar-job', function () {
       if (!confirm('¿Eliminar este trabajo? No se puede deshacer.')) return;
       deleteJob(j.id);
+      syncDeleteFromSheet(j.id);
       showToast('Trabajo eliminado');
       closeOverlay();
       render();
@@ -695,8 +694,8 @@
       if (unidad === 'scott' && isScottDomingo(j.fecha)) { showToast('⚠️ Scott no trabaja los domingos'); return; }
       var adicionales = parseMoney(document.getElementById('conf-adicionales') ? document.getElementById('conf-adicionales').value : '');
       var jobConf = Object.assign({}, j, { unidad: unidad, precioCamioneta: precio, adicionales: adicionales, estado: 'confirmado' });
-      saveJob(jobConf);
-      syncJob(jobConf);
+      var saved = saveJob(jobConf);
+      syncJobToSheet(saved);
       showToast('Trabajo confirmado ✓');
       S.ovPage = 'view';
       renderOverlay();
@@ -714,8 +713,8 @@
       var ganancia   = Math.round(Number(gananciaEl ? gananciaEl.value : 0) || 0);
       if (tieneGastos(j.unidad)) saveGastos(j.fecha, j.unidad, gastos);
       var jobReal = Object.assign({}, j, { totalCobrado: cobrado, gananciaNeta: ganancia, comprobante: comp, estado: 'realizado' });
-      saveJob(jobReal);
-      syncJob(jobReal, gastos);
+      var savedReal = saveJob(jobReal);
+      syncJobToSheet(savedReal, gastos);
       showToast('¡Trabajo realizado! ✓');
       S.ovPage = 'view';
       renderOverlay();
@@ -745,8 +744,8 @@
       var ganEl = document.getElementById('edit-ganancia');
       var gan   = Math.round(Number(ganEl ? ganEl.value : (j.gananciaNeta || 0)) || 0);
       var jobGan = Object.assign({}, j, { gananciaNeta: gan });
-      saveJob(jobGan);
-      syncJob(jobGan);
+      var savedGan = saveJob(jobGan);
+      syncJobToSheet(savedGan);
       showToast('Ganancia actualizada ✓');
       renderOverlay();
       render();
@@ -847,7 +846,8 @@
       if (!job.nombre) { showToast('No se encontró el nombre del cliente'); return; }
       job.id     = generateId();
       job.unidad = unidad || null;
-      saveJob(job);
+      var savedImport = saveJob(job);
+      syncJobToSheet(savedImport);
       S.fecha = job.fecha;
       closeOverlay();
       navigateTo('agenda');
