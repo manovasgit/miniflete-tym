@@ -142,15 +142,23 @@ const GS = (function () {
     ];
   }
 
+  // Codifica el rango para la URL: solo el nombre de la hoja,
+  // los caracteres ! y : de la referencia de celda van literales.
+  function _rangeUrl(range) {
+    var bang = range.indexOf('!');
+    if (bang === -1) return encodeURIComponent(range);
+    return encodeURIComponent(range.substring(0, bang)) + range.substring(bang);
+  }
+
   // ── CRUD ─────────────────────────────────────────────────────────────────
   function readAll() {
-    return _req('GET', '/values/' + encodeURIComponent(SHEET_NAME + '!A:O'));
+    return _req('GET', '/values/' + _rangeUrl(SHEET_NAME + '!A:O'));
   }
 
   function appendJob(job, gastos) {
-    var range = SHEET_NAME + '!A:O';
+    // Para append se usa solo el nombre de la hoja como rango de búsqueda
     return _req('POST',
-      '/values/' + encodeURIComponent(range) +
+      '/values/' + encodeURIComponent(SHEET_NAME) +
       ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
       { values: [jobToRow(job, gastos)] }
     );
@@ -159,7 +167,7 @@ const GS = (function () {
   function updateJob(rowNum, job, gastos) {
     var range = SHEET_NAME + '!A' + rowNum + ':O' + rowNum;
     return _req('PUT',
-      '/values/' + encodeURIComponent(range) + '?valueInputOption=USER_ENTERED',
+      '/values/' + _rangeUrl(range) + '?valueInputOption=USER_ENTERED',
       { values: [jobToRow(job, gastos)] }
     );
   }
@@ -185,9 +193,8 @@ const GS = (function () {
   // Retorna null si no existe.
   // Sube múltiples filas de una sola vez (para importar backup)
   function batchAppend(rows) {
-    var range = SHEET_NAME + '!A:O';
     return _req('POST',
-      '/values/' + encodeURIComponent(range) +
+      '/values/' + encodeURIComponent(SHEET_NAME) +
       ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
       { values: rows }
     );
