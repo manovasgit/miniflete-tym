@@ -183,6 +183,16 @@ const GS = (function () {
 
   // Busca el número de fila (1-based) de un job por su id.
   // Retorna null si no existe.
+  // Sube múltiples filas de una sola vez (para importar backup)
+  function batchAppend(rows) {
+    var range = SHEET_NAME + '!A:O';
+    return _req('POST',
+      '/values/' + encodeURIComponent(range) +
+      ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
+      { values: rows }
+    );
+  }
+
   function findRowByJobId(jobId) {
     return readAll().then(function (data) {
       var rows = data.values || [];
@@ -201,6 +211,7 @@ const GS = (function () {
     appendJob:      appendJob,
     updateJob:      updateJob,
     deleteJob:      deleteJob,
+    batchAppend:    batchAppend,
     findRowByJobId: findRowByJobId,
     jobToRow:       jobToRow,
   };

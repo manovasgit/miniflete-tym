@@ -518,6 +518,10 @@ body {
 .btn-tools {
   margin-top: 8px;
 }
+.btn-import-label {
+  cursor: pointer;
+  text-align: center;
+}
 
 /* ── Spinner (sincronización) ──────────────────────────────────────────── */
 .spinner {

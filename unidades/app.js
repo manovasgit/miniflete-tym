@@ -1123,6 +1123,10 @@
       + '<div class="section-header"><span>Herramientas</span></div>'
       + buildGSheetsCard()
       + '<button class="btn-outline btn-tools" id="btn-exportar-backup">⬇ Exportar backup JSON</button>'
+      + '<label class="btn-outline btn-tools btn-import-label" id="lbl-importar-backup">'
+      + '⬆ Importar backup al Sheet'
+      + '<input type="file" id="inp-backup-json" accept=".json" style="display:none">'
+      + '</label>'
       + '</div>';
   }
 
@@ -1159,6 +1163,16 @@
     var btnExp = document.getElementById('btn-exportar-backup');
     if (btnExp) btnExp.addEventListener('click', exportBackup);
 
+    var inpBackup = document.getElementById('inp-backup-json');
+    if (inpBackup) inpBackup.addEventListener('change', function (e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function (ev) { handleImportBackup(ev.target.result); };
+      reader.readAsText(file);
+      e.target.value = '';  // permite seleccionar el mismo archivo otra vez
+    });
+
     var btnConn = document.getElementById('btn-gs-connect');
     if (btnConn) btnConn.addEventListener('click', function () {
       btnConn.textContent = 'Conectando…';
@@ -1183,6 +1197,41 @@
       main.innerHTML = buildCaja();
       bindCaja(main);
     });
+  }
+
+  function handleImportBackup(fileContent) {
+    var data;
+    try { data = JSON.parse(fileContent); }
+    catch (e) { showToast('Archivo inválido'); return; }
+
+    if (!data.jobs || !Array.isArray(data.jobs) || data.jobs.length === 0) {
+      showToast('El archivo no contiene trabajos'); return;
+    }
+    if (!GS.isConnected()) {
+      showToast('Conectate a Google Sheets primero'); return;
+    }
+
+    var jobs   = data.jobs;
+    var gastos = data.gastos || {};
+    var total  = jobs.length;
+
+    if (!confirm('Se encontraron ' + total + ' trabajos en el backup.\n¿Subir todos al Google Sheet?\n\nHacé esto una sola vez para no duplicar datos.')) return;
+
+    showToast('Subiendo ' + total + ' trabajos…');
+
+    var rows = jobs.map(function (job) {
+      var key = (job.fecha || '') + '__' + (job.unidad || '');
+      return GS.jobToRow(job, gastos[key] || 0);
+    });
+
+    GS.batchAppend(rows)
+      .then(function () {
+        showToast('¡' + total + ' trabajos importados al Sheet ✓');
+        // Recargar datos desde el Sheet para actualizar rowMap
+        return initFromSheets();
+      })
+      .then(function () { render(); })
+      .catch(function (e) { showToast('Error al importar: ' + e.message); });
   }
 
   function exportBackup() {
