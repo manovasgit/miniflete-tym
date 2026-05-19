@@ -516,8 +516,52 @@ body {
   padding: 0 16px 16px;
 }
 .btn-tools {
-  margin-top: 4px;
+  margin-top: 8px;
 }
+
+/* ── Google Sheets connection card ─────────────────────────────────────── */
+.gs-card {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 8px;
+}
+.gs-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.gs-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.gs-card-title {
+  font-size: .9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.gs-status {
+  font-size: .8rem;
+  font-weight: 500;
+}
+.gs-ok  { color: var(--green); }
+.gs-off { color: var(--text2); }
+.btn-gs-connect {
+  flex-shrink: 0;
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: .85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-gs-connect:active { opacity: .85; }
+.btn-gs-connect:disabled { opacity: .5; }
 
 /* ── Toast ─────────────────────────────────────────────────────────────── */
 #toast {

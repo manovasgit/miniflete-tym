@@ -1121,7 +1121,24 @@
       + tableHtml
       + '<div class="tools-section">'
       + '<div class="section-header"><span>Herramientas</span></div>'
+      + buildGSheetsCard()
       + '<button class="btn-outline btn-tools" id="btn-exportar-backup">⬇ Exportar backup JSON</button>'
+      + '</div>';
+  }
+
+  function buildGSheetsCard() {
+    var ok = GS.isConnected();
+    return '<div class="gs-card">'
+      + '<div class="gs-card-row">'
+      + '<div class="gs-card-info">'
+      + '<span class="gs-card-title">Google Sheets</span>'
+      + '<span class="gs-status ' + (ok ? 'gs-ok' : 'gs-off') + '">'
+      + (ok ? '● Conectado' : '● Sin conectar') + '</span>'
+      + '</div>'
+      + (ok
+        ? '<button class="btn-ghost btn-sm" id="btn-gs-disconnect">Desconectar</button>'
+        : '<button class="btn-gs-connect" id="btn-gs-connect">Conectar con Google</button>')
+      + '</div>'
       + '</div>';
   }
 
@@ -1141,6 +1158,31 @@
 
     var btnExp = document.getElementById('btn-exportar-backup');
     if (btnExp) btnExp.addEventListener('click', exportBackup);
+
+    var btnConn = document.getElementById('btn-gs-connect');
+    if (btnConn) btnConn.addEventListener('click', function () {
+      btnConn.textContent = 'Conectando…';
+      btnConn.disabled = true;
+      GS.connect()
+        .then(function () {
+          showToast('Conectado a Google Sheets ✓');
+          main.innerHTML = buildCaja();
+          bindCaja(main);
+        })
+        .catch(function (e) {
+          showToast('Error: ' + e.message);
+          main.innerHTML = buildCaja();
+          bindCaja(main);
+        });
+    });
+
+    var btnDisc = document.getElementById('btn-gs-disconnect');
+    if (btnDisc) btnDisc.addEventListener('click', function () {
+      GS.clearToken();
+      showToast('Desconectado de Google Sheets');
+      main.innerHTML = buildCaja();
+      bindCaja(main);
+    });
   }
 
   function exportBackup() {
