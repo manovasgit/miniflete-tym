@@ -28,12 +28,16 @@
     setupBottomNav();
     initSwipe();
 
+    // Verificar si la página cargó con un token OAuth en el hash (retorno del redirect)
+    var justConnected = GS.checkRedirectToken();
+
     if (GS.isConnected()) {
       document.getElementById('main').innerHTML =
         '<div class="loading"><div class="spinner"></div><p>Sincronizando…</p></div>';
       initFromSheets().then(function (result) {
         render();
-        if (result.source === 'sheets') showToast('Datos sincronizados ✓');
+        if (justConnected) showToast('Conectado a Google Sheets ✓');
+        else if (result.source === 'sheets') showToast('Datos sincronizados ✓');
       });
     } else {
       render();

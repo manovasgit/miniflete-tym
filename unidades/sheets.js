@@ -1,25 +1,24 @@
-// sheets.js — Google Sheets API via OAuth2 (GIS token model, no backend)
+// sheets.js — Google Sheets API via OAuth2 (implicit/redirect flow, sin backend)
 
 const GS = (function () {
   'use strict';
 
-  var CLIENT_ID  = '432666695416-nh5jtjf2bkk430f0cdtfhpthq5qqhgf3.apps.googleusercontent.com';
-  var SHEET_ID   = '1mubnuNuOmRYcnZSv-D3--qovJJ2eh74K6ITVYxFS_Jw';
-  var SHEET_NAME = 'Hoja 1';
-  var SCOPE      = 'https://www.googleapis.com/auth/spreadsheets';
-  var TOKEN_KEY  = 'mtym_gtoken';
-  var BASE       = 'https://sheets.googleapis.com/v4/spreadsheets/' + SHEET_ID;
+  var CLIENT_ID    = '432666695416-nh5jtjf2bkk430f0cdtfhpthq5qqhgf3.apps.googleusercontent.com';
+  var SHEET_ID     = '1mubnuNuOmRYcnZSv-D3--qovJJ2eh74K6ITVYxFS_Jw';
+  var SHEET_NAME   = 'Hoja 1';
+  var SCOPE        = 'https://www.googleapis.com/auth/spreadsheets';
+  var TOKEN_KEY    = 'mtym_gtoken';
+  var STATE_KEY    = 'mtym_oauth_state';
+  var REDIRECT_URI = 'https://manovasgit.github.io/miniflete-tym/unidades/';
+  var BASE         = 'https://sheets.googleapis.com/v4/spreadsheets/' + SHEET_ID;
 
-  var _tokenClient = null;
-  var _pending     = null;   // { resolve, reject }
-  var _sheetGid    = null;
+  var _sheetGid = null;
 
   // ── Token ────────────────────────────────────────────────────────────────
-  function _saveToken(resp) {
+  function _saveToken(accessToken, expiresIn) {
     localStorage.setItem(TOKEN_KEY, JSON.stringify({
-      access_token: resp.access_token,
-      // restar 2 min para renovar antes de que expire
-      expires: Date.now() + (Number(resp.expires_in) - 120) * 1000,
+      access_token: accessToken,
+      expires: Date.now() + (Number(expiresIn || 3600) - 120) * 1000,
     }));
   }
 
@@ -35,42 +34,57 @@ const GS = (function () {
 
   function isConnected() { return !!_getAccessToken(); }
 
-  // ── GIS (Google Identity Services) ───────────────────────────────────────
-  function _initClient() {
-    if (_tokenClient) return true;
-    if (typeof google === 'undefined' || !google.accounts) return false;
-    _tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: CLIENT_ID,
-      scope:     SCOPE,
-      callback:  function (resp) {
-        if (resp.error) {
-          if (_pending) { _pending.reject(new Error(resp.error_description || resp.error)); }
-        } else {
-          _saveToken(resp);
-          if (_pending) { _pending.resolve(resp.access_token); }
-        }
-        _pending = null;
-      },
-    });
-    return true;
+  // ── OAuth2 redirect flow ─────────────────────────────────────────────────
+  // Redirige la página a Google para autorizar. Al volver, checkRedirectToken()
+  // lee el token del hash de la URL.
+  function connect() {
+    var state = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    localStorage.setItem(STATE_KEY, state);
+
+    var params = [
+      'client_id='     + encodeURIComponent(CLIENT_ID),
+      'redirect_uri='  + encodeURIComponent(REDIRECT_URI),
+      'response_type=token',
+      'scope='         + encodeURIComponent(SCOPE),
+      'state='         + state,
+      'include_granted_scopes=true',
+    ].join('&');
+
+    window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
+    return new Promise(function () {}); // la página navega, nunca resuelve
   }
 
-  function connect() {
-    return new Promise(function (resolve, reject) {
-      if (!_initClient()) {
-        reject(new Error('La biblioteca de Google aún no cargó. Intentá en unos segundos.'));
-        return;
-      }
-      _pending = { resolve: resolve, reject: reject };
-      // prompt vacío: reutiliza sesión Google activa sin pedir selección de cuenta
-      _tokenClient.requestAccessToken({ prompt: '' });
+  // Llamar al cargar la página. Devuelve true si había un token en el hash.
+  function checkRedirectToken() {
+    var hash = window.location.hash;
+    if (!hash || hash.length < 2) return false;
+
+    var params = {};
+    hash.slice(1).split('&').forEach(function (pair) {
+      var kv = pair.split('=');
+      params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
     });
+
+    if (!params.access_token) return false;
+
+    // Validar state para prevenir CSRF
+    var savedState = localStorage.getItem(STATE_KEY);
+    if (savedState && params.state && params.state !== savedState) return false;
+
+    localStorage.removeItem(STATE_KEY);
+    // Limpiar el hash de la URL sin recargar
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+
+    _saveToken(params.access_token, params.expires_in);
+    return true;
   }
 
   function _ensureToken() {
     var t = _getAccessToken();
     if (t) return Promise.resolve(t);
-    return connect();
+    // Si no hay token, iniciar el flujo de autorización
+    connect();
+    return new Promise(function () {}); // nunca resuelve, la página redirige
   }
 
   // ── Fetch base ───────────────────────────────────────────────────────────
@@ -211,15 +225,16 @@ const GS = (function () {
   }
 
   return {
-    isConnected:    isConnected,
-    connect:        connect,
-    clearToken:     clearToken,
-    readAll:        readAll,
-    appendJob:      appendJob,
-    updateJob:      updateJob,
-    deleteJob:      deleteJob,
-    batchAppend:    batchAppend,
-    findRowByJobId: findRowByJobId,
-    jobToRow:       jobToRow,
+    isConnected:        isConnected,
+    connect:            connect,
+    checkRedirectToken: checkRedirectToken,
+    clearToken:         clearToken,
+    readAll:            readAll,
+    appendJob:          appendJob,
+    updateJob:          updateJob,
+    deleteJob:          deleteJob,
+    batchAppend:        batchAppend,
+    findRowByJobId:     findRowByJobId,
+    jobToRow:           jobToRow,
   };
 })();
