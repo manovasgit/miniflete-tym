@@ -5,7 +5,7 @@ const GS = (function () {
 
   var CLIENT_ID  = '432666695416-nh5jtjf2bkk430f0cdtfhpthq5qqhgf3.apps.googleusercontent.com';
   var SHEET_ID   = '1mubnuNuOmRYcnZSv-D3--qovJJ2eh74K6ITVYxFS_Jw';
-  var SHEET_NAME = 'Trabajos';
+  var SHEET_NAME = 'Hoja 1';
   var SCOPE      = 'https://www.googleapis.com/auth/spreadsheets';
   var TOKEN_KEY  = 'mtym_gtoken';
   var BASE       = 'https://sheets.googleapis.com/v4/spreadsheets/' + SHEET_ID;
