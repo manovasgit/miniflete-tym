@@ -472,6 +472,15 @@
   // ════════════════════════════════════════════════════════════════════════
   // DETALLE OVERLAY
   // ════════════════════════════════════════════════════════════════════════
+  function waLink(phone) {
+    if (!phone) return null;
+    var digits = phone.replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.slice(0, 2) === '54' && digits.length >= 12) return 'https://wa.me/' + digits;
+    if (digits.slice(0, 1) === '0') digits = digits.slice(1);
+    return 'https://wa.me/54' + digits;
+  }
+
   function buildDetalle() {
     var j = getById(S.selId);
     if (!j) return '<div class="ov-header"><button class="ov-back" id="btn-ov-close">‹</button><h2>No encontrado</h2></div>';
@@ -490,6 +499,15 @@
     function detRow(label, value) {
       if (!value && value !== 0) return '';
       return '<div class="det-row"><span class="det-label">' + label + '</span><span class="det-value">' + esc(value) + '</span></div>';
+    }
+
+    function detRowLink(label, phone) {
+      if (!phone) return '';
+      var href = waLink(phone);
+      var inner = href
+        ? '<a href="' + href + '" class="wa-link">' + esc(phone) + '</a>'
+        : esc(phone);
+      return '<div class="det-row"><span class="det-label">' + label + '</span><span class="det-value">' + inner + '</span></div>';
     }
 
     var html = '<div class="ov-header">'
@@ -520,14 +538,14 @@
       + '<div class="det-section">'
       + '<div class="det-section-title">Retiro</div>'
       + detRow('Dirección', j.calleRetiro + (j.pisoRetiro ? ' ' + j.pisoRetiro : '') + ', ' + j.barrioRetiro)
-      + detRow('Teléfono', j.telefonoRetiro)
+      + detRowLink('Teléfono', j.telefonoRetiro)
       + '</div>'
 
       // Entrega
       + '<div class="det-section">'
       + '<div class="det-section-title">Entrega</div>'
       + detRow('Dirección', j.calleEntrega + (j.pisoEntrega ? ' ' + j.pisoEntrega : '') + ', ' + j.barrioEntrega)
-      + (j.telefonoEntrega ? detRow('Teléfono', j.telefonoEntrega) : '')
+      + detRowLink('Teléfono', j.telefonoEntrega)
       + '</div>'
 
       // Condiciones

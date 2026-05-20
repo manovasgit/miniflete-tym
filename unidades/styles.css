@@ -292,6 +292,8 @@ body {
 .det-label { color: var(--text2); flex-shrink: 0; margin-right: 10px; }
 .det-value { text-align: right; font-weight: 500; word-break: break-word; }
 .det-row.ganancia-row .det-value { font-size: 1.1rem; font-weight: 800; }
+.wa-link { color: #25D366; font-weight: 600; text-decoration: none; }
+.wa-link:active { opacity: .7; }
 
 /* ── Actions ───────────────────────────────────────────────────────────── */
 .det-actions {
