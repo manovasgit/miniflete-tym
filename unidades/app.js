@@ -572,6 +572,8 @@
       html += '<div class="det-section">'
         + '<div class="det-section-title">Cierre</div>'
         + detRow('Total cobrado', formatMoney(j.totalCobrado))
+        + (j.costoPeones ? detRow('Peones', formatMoney(j.costoPeones)) : '')
+        + (j.adicionales ? detRow('Adicionales', formatMoney(j.adicionales)) : '')
         + (gastos ? detRow('Gastos del día', formatMoney(gastos)) : '')
         + detRow('Comprobante', compLbl[j.comprobante] || '—')
         + '<div class="det-row ganancia-row"><span class="det-label">Ganancia Martín</span>'
@@ -626,7 +628,11 @@
         + '<div class="money-wrap"><span class="money-prefix">$</span>'
         + '<input type="number" id="conf-precio" inputmode="numeric" placeholder="0" min="0" value="' + (j.precioCamioneta || '') + '" autocomplete="off">'
         + '</div></div>'
-      + '<div class="field"><label>Adicionales — peones / escalera (solo informativo)</label>'
+      + '<div class="field"><label>Peones</label>'
+        + '<div class="money-wrap"><span class="money-prefix">$</span>'
+        + '<input type="number" id="conf-peones" inputmode="numeric" placeholder="0" min="0" value="' + (j.costoPeones || '') + '" autocomplete="off">'
+        + '</div></div>'
+      + '<div class="field"><label>Adicional (escalera, otros)</label>'
         + '<div class="money-wrap"><span class="money-prefix">$</span>'
         + '<input type="number" id="conf-adicionales" inputmode="numeric" placeholder="0" min="0" value="' + (j.adicionales || '') + '" autocomplete="off">'
         + '</div></div>'
@@ -649,6 +655,14 @@
         + '<div class="money-wrap"><span class="money-prefix">$</span>'
         + '<input type="number" id="real-cobrado" inputmode="numeric" placeholder="0" min="0" value="' + (j.totalCobrado || '') + '" autocomplete="off">'
         + '</div></div>'
+      + '<div class="field"><label>Peones</label>'
+      + '<div class="money-wrap"><span class="money-prefix">$</span>'
+        + '<input type="number" id="real-peones" inputmode="numeric" placeholder="0" min="0" value="' + (j.costoPeones || '') + '" autocomplete="off">'
+      + '</div></div>'
+      + '<div class="field"><label>Adicionales</label>'
+      + '<div class="money-wrap"><span class="money-prefix">$</span>'
+        + '<input type="number" id="real-adicionales" inputmode="numeric" placeholder="0" min="0" value="' + (j.adicionales || '') + '" autocomplete="off">'
+      + '</div></div>'
       + (hasG ? '<div class="field"><label>Gastos del día</label>'
         + '<div class="field-hint">Combustible, peajes, etc. — total del día para esta unidad</div>'
         + '<div class="money-wrap"><span class="money-prefix">$</span>'
@@ -715,7 +729,8 @@
       if (!precio)  { showToast('Ingresá el precio de camioneta'); return; }
       if (unidad === 'scott' && isScottDomingo(j.fecha)) { showToast('⚠️ Scott no trabaja los domingos'); return; }
       var adicionales = parseMoney(document.getElementById('conf-adicionales') ? document.getElementById('conf-adicionales').value : '');
-      var jobConf = Object.assign({}, j, { unidad: unidad, precioCamioneta: precio, adicionales: adicionales, estado: 'confirmado' });
+      var costoPeones = parseMoney(document.getElementById('conf-peones') ? document.getElementById('conf-peones').value : '');
+      var jobConf = Object.assign({}, j, { unidad: unidad, precioCamioneta: precio, adicionales: adicionales, costoPeones: costoPeones, estado: 'confirmado' });
       var saved = saveJob(jobConf);
       syncJobToSheet(saved);
       showToast('Trabajo confirmado ✓');
@@ -734,7 +749,11 @@
       var gananciaEl = document.getElementById('real-ganancia');
       var ganancia   = Math.round(Number(gananciaEl ? gananciaEl.value : 0) || 0);
       if (tieneGastos(j.unidad)) saveGastos(j.fecha, j.unidad, gastos);
-      var jobReal = Object.assign({}, j, { totalCobrado: cobrado, gananciaNeta: ganancia, comprobante: comp, estado: 'realizado' });
+      var peonesRealEl = document.getElementById('real-peones');
+      var peonesReal = peonesRealEl ? parseMoney(peonesRealEl.value) : (j.costoPeones || 0);
+      var adicionalesRealEl = document.getElementById('real-adicionales');
+      var adicionalesReal = adicionalesRealEl ? parseMoney(adicionalesRealEl.value) : (j.adicionales || 0);
+      var jobReal = Object.assign({}, j, { totalCobrado: cobrado, gananciaNeta: ganancia, comprobante: comp, costoPeones: peonesReal, adicionales: adicionalesReal, estado: 'realizado' });
       var savedReal = saveJob(jobReal);
       syncJobToSheet(savedReal, gastos);
       showToast('¡Trabajo realizado! ✓');
