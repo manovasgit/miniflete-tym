@@ -1044,6 +1044,8 @@
         return s + (j.estado === 'realizado' ? (j.totalCobrado || 0) : (j.precioCamioneta || 0));
       }, 0);
       var gastos = getGastos(S.resumenFecha, u.id);
+      var peones = uJobs.reduce(function (s, j) { return s + (j.costoPeones || 0); }, 0);
+      var adicionales = uJobs.reduce(function (s, j) { return s + (j.adicionales || 0); }, 0);
       var ganancia = uJobs.reduce(function (s, j) {
         if (j.estado === 'realizado') return s + (j.gananciaNeta || 0);
         return s + calcGanancia(u.id, j.precioCamioneta, gastos, j.fecha);
@@ -1054,6 +1056,8 @@
       return '<tr><td class="td-unit">' + esc(u.nombre) + '</td>'
         + '<td class="td-num">' + uJobs.length + '</td>'
         + '<td class="td-num">' + formatMoney(facturado) + '</td>'
+        + '<td class="td-num">' + (peones ? formatMoney(peones) : '—') + '</td>'
+        + '<td class="td-num">' + (adicionales ? formatMoney(adicionales) : '—') + '</td>'
         + '<td class="td-num">' + (gastos ? formatMoney(gastos) : '—') + '</td>'
         + '<td class="td-num bold ' + (ganancia < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(ganancia) + '</td>'
         + '</tr>';
@@ -1061,12 +1065,12 @@
 
     var tableHtml = rows.length
       ? '<div class="table-wrap"><table class="data-table">'
-          + '<thead><tr><th>Unidad</th><th>Serv.</th><th>Facturado</th><th>Gastos</th><th>Ganancia</th></tr></thead>'
+          + '<thead><tr><th>Unidad</th><th>Serv.</th><th>Facturado</th><th>Peones</th><th>Adicionales</th><th>Gastos</th><th>Ganancia</th></tr></thead>'
           + '<tbody>' + rows.join('') + '</tbody>'
           + '<tfoot><tr><td class="bold">TOTAL</td>'
             + '<td class="td-num bold">' + jobs.length + '</td>'
             + '<td class="td-num bold">' + formatMoney(grandFact) + '</td>'
-            + '<td></td>'
+            + '<td></td><td></td><td></td>'
             + '<td class="td-num bold ' + (grandGan < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(grandGan) + '</td>'
           + '</tr></tfoot>'
         + '</table></div>'
@@ -1125,6 +1129,8 @@
         return acc;
       }, []);
       var gastosMes = fechas.reduce(function (s, f) { return s + (getGastos(f, u.id) || 0); }, 0);
+      var peonesMes = uJobs.reduce(function (s, j) { return s + (j.costoPeones || 0); }, 0);
+      var adicionalesMes = uJobs.reduce(function (s, j) { return s + (j.adicionales || 0); }, 0);
       var ganancia = uJobs.reduce(function (s, j) {
         if (j.estado === 'realizado') return s + (j.gananciaNeta || 0);
         return s + calcGanancia(u.id, j.precioCamioneta, 0, j.fecha);
@@ -1134,17 +1140,21 @@
       return '<tr><td class="td-unit">' + esc(u.nombre) + '</td>'
         + '<td class="td-num">' + uJobs.length + '</td>'
         + '<td class="td-num">' + formatMoney(facturado) + '</td>'
+        + '<td class="td-num">' + (peonesMes ? formatMoney(peonesMes) : '—') + '</td>'
+        + '<td class="td-num">' + (adicionalesMes ? formatMoney(adicionalesMes) : '—') + '</td>'
+        + '<td class="td-num">' + (gastosMes ? formatMoney(gastosMes) : '—') + '</td>'
         + '<td class="td-num bold ' + (ganancia < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(ganancia) + '</td>'
         + '</tr>';
     });
 
     var tableHtml = rows.length
       ? '<div class="table-wrap"><table class="data-table">'
-          + '<thead><tr><th>Unidad</th><th>Serv.</th><th>Facturado</th><th>Ganancia</th></tr></thead>'
+          + '<thead><tr><th>Unidad</th><th>Serv.</th><th>Facturado</th><th>Peones</th><th>Adicionales</th><th>Gastos</th><th>Ganancia</th></tr></thead>'
           + '<tbody>' + rows.join('') + '</tbody>'
           + '<tfoot><tr><td class="bold">TOTAL</td>'
             + '<td class="td-num bold">' + jobs.length + '</td>'
             + '<td class="td-num bold">' + formatMoney(grandFact) + '</td>'
+            + '<td></td><td></td><td></td>'
             + '<td class="td-num bold ' + (grandGan < 0 ? 'text-neg' : 'text-pos') + '">' + formatMoney(grandGan) + '</td>'
           + '</tr></tfoot>'
         + '</table></div>'
