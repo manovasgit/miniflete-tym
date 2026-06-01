@@ -797,15 +797,21 @@
       var cobrado  = parseMoney(document.getElementById('real-cobrado') ? document.getElementById('real-cobrado').value : '');
       var gastosEl = document.getElementById('real-gastos');
       var gastos   = gastosEl ? parseMoney(gastosEl.value) : 0;
+      var peones   = parseMoney(document.getElementById('real-peones') ? document.getElementById('real-peones').value : '');
+      var adics    = parseMoney(document.getElementById('real-adicionales') ? document.getElementById('real-adicionales').value : '');
       var ganEl    = document.getElementById('real-ganancia');
       if (!ganEl) return;
       if (!cobrado) { ganEl.value = 0; return; }
-      ganEl.value = calcGanancia(j.unidad, cobrado, gastos, j.fecha);
+      ganEl.value = calcGanancia(j.unidad, cobrado, gastos, j.fecha) - (peones || 0) - (adics || 0);
     }
-    var realCobrado = document.getElementById('real-cobrado');
-    var realGastos  = document.getElementById('real-gastos');
-    if (realCobrado) { realCobrado.addEventListener('input', updateRealPreview); updateRealPreview(); }
-    if (realGastos)    realGastos.addEventListener('input', updateRealPreview);
+    var realCobrado    = document.getElementById('real-cobrado');
+    var realGastos     = document.getElementById('real-gastos');
+    var realPeones     = document.getElementById('real-peones');
+    var realAdicionales = document.getElementById('real-adicionales');
+    if (realCobrado)     { realCobrado.addEventListener('input', updateRealPreview); updateRealPreview(); }
+    if (realGastos)        realGastos.addEventListener('input', updateRealPreview);
+    if (realPeones)        realPeones.addEventListener('input', updateRealPreview);
+    if (realAdicionales)   realAdicionales.addEventListener('input', updateRealPreview);
   }
 
   // ════════════════════════════════════════════════════════════════════════
