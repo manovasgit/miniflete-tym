@@ -558,9 +558,16 @@
 
     // Operativo
     if (j.estado === 'confirmado' || j.estado === 'realizado') {
+      var unidadOpts2 = UNIDADES.map(function (u2) {
+        return '<option value="' + u2.id + '"' + (j.unidad === u2.id ? ' selected' : '') + '>' + esc(u2.nombre) + '</option>';
+      }).join('');
       html += '<div class="det-section">'
         + '<div class="det-section-title">Operativo</div>'
-        + detRow('Unidad', u ? u.nombre : '—')
+        + '<div class="cierre-edit-row"><span class="det-label">Unidad</span>'
+          + '<select id="edit-unidad" style="flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:6px">'
+          + unidadOpts2 + '</select>'
+          + '<button class="btn-ghost btn-sm" id="btn-guardar-unidad">✓</button>'
+        + '</div>'
         + detRow('Precio camioneta', formatMoney(j.precioCamioneta))
         + (j.adicionales ? detRow('Adicionales', formatMoney(j.adicionales)) : '')
         + '</div>';
@@ -795,6 +802,17 @@
     if (confUnidad) confUnidad.addEventListener('change', updateConfPreview);
 
     // Ganancia editable — detalle realizado
+    on('btn-guardar-unidad', function () {
+      var sel = document.getElementById('edit-unidad');
+      if (!sel || !sel.value) return;
+      var jobUpd = Object.assign({}, j, { unidad: sel.value });
+      var saved  = saveJob(jobUpd);
+      syncJobToSheet(saved);
+      showToast('Unidad actualizada ✓');
+      renderOverlay();
+      render();
+    });
+
     on('btn-guardar-cierre', function () {
       var camEl  = document.getElementById('edit-camioneta');
       var peoEl  = document.getElementById('edit-peones');
