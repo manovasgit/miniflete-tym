@@ -21,26 +21,32 @@ function generarComanda(job) {
 
   lines.push(`*${job.hora || ''}*`);
   lines.push(`*${job.nombre || ''}*`);
+  lines.push('');                                                          // renglón entre nombre y traslado
   if (job.inventario) lines.push(job.inventario);
   lines.push(`*Peones* ${PEONES_TXT[job.peones] || job.peones || ''}`);
+  lines.push('');                                                          // renglón entre peones y dir retiro
 
   lines.push(`*Dir retiro:*`);
   const dirR = [job.calleRetiro, job.pisoRetiro].filter(Boolean).join(' ');
   if (dirR) lines.push(dirR);
   if (job.barrioRetiro)   lines.push(job.barrioRetiro);
   if (job.telefonoRetiro) lines.push(job.telefonoRetiro);
+  lines.push('');                                                          // renglón entre tel retiro y dir entrega
 
   lines.push(`*Dir entrega:*`);
   const dirE = [job.calleEntrega, job.pisoEntrega].filter(Boolean).join(' ');
   if (dirE) lines.push(dirE);
   if (job.barrioEntrega)   lines.push(job.barrioEntrega);
   if (job.telefonoEntrega) lines.push(job.telefonoEntrega);
+  lines.push('');                                                          // renglón entre tel entrega y pago
 
   lines.push(`*Pago* ${PAGO_TXT[job.formaPago] || job.formaPago || ''}`);
   lines.push(`*Viaja* ${VIAJA_TXT[job.viajaEnUnidad] || job.viajaEnUnidad || ''}`);
+  lines.push('');                                                          // renglón entre viaja e info adicional
 
   if (job.aclaraciones && job.aclaraciones.trim()) {
     lines.push(job.aclaraciones.trim());
+    lines.push('');                                                        // renglón entre info adicional y precios
   }
 
   // Precios al final
