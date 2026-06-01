@@ -571,9 +571,20 @@
       var gastos = getGastos(j.fecha, j.unidad) || 0;
       html += '<div class="det-section">'
         + '<div class="det-section-title">Cierre</div>'
-        + detRow('Total cobrado', formatMoney(j.totalCobrado))
-        + (j.costoPeones ? detRow('Peones', formatMoney(j.costoPeones)) : '')
-        + (j.adicionales ? detRow('Adicionales', formatMoney(j.adicionales)) : '')
+        + '<div class="cierre-edit-row"><span class="det-label">Cobro camioneta</span>'
+          + '<div class="money-wrap"><span class="money-prefix">$</span>'
+          + '<input type="number" id="edit-camioneta" inputmode="numeric" value="' + (j.cobroCamioneta || j.totalCobrado || 0) + '" autocomplete="off">'
+          + '</div></div>'
+        + '<div class="cierre-edit-row"><span class="det-label">Cobro peones</span>'
+          + '<div class="money-wrap"><span class="money-prefix">$</span>'
+          + '<input type="number" id="edit-peones" inputmode="numeric" value="' + (j.costoPeones || 0) + '" autocomplete="off">'
+          + '</div></div>'
+        + '<div class="cierre-edit-row"><span class="det-label">Cobro adicionales</span>'
+          + '<div class="money-wrap"><span class="money-prefix">$</span>'
+          + '<input type="number" id="edit-adicionales" inputmode="numeric" value="' + (j.adicionales || 0) + '" autocomplete="off">'
+          + '</div></div>'
+        + '<div class="det-row"><span class="det-label">Total cobrado</span>'
+          + '<span class="det-value" id="cierre-total">' + formatMoney(j.totalCobrado) + '</span></div>'
         + (gastos ? detRow('Gastos del día', formatMoney(gastos)) : '')
         + detRow('Comprobante', compLbl[j.comprobante] || '—')
         + '<div class="det-row ganancia-row"><span class="det-label">Ganancia Martín</span>'
@@ -582,7 +593,7 @@
           + '<div class="money-wrap"><span class="money-prefix">$</span>'
           + '<input type="number" id="edit-ganancia" inputmode="numeric" value="' + (j.gananciaNeta || 0) + '" autocomplete="off">'
           + '</div>'
-          + '<button class="btn-ghost btn-sm" id="btn-guardar-ganancia">Guardar</button>'
+          + '<button class="btn-ghost btn-sm" id="btn-guardar-cierre">Guardar cobros</button>'
         + '</div>'
         + '</div>';
     }
@@ -651,18 +662,22 @@
       + '</div>'
       + '<div class="ov-body">'
       + '<div class="form-section">'
-      + '<div class="field"><label>Total cobrado real <span class="req">*</span></label>'
+      + '<div class="field"><label>Cobro camioneta <span class="req">*</span></label>'
         + '<div class="money-wrap"><span class="money-prefix">$</span>'
-        + '<input type="number" id="real-cobrado" inputmode="numeric" placeholder="0" min="0" value="' + (j.totalCobrado || '') + '" autocomplete="off">'
+        + '<input type="number" id="real-camioneta" inputmode="numeric" placeholder="0" min="0" value="' + (j.cobroCamioneta || j.precioCamioneta || '') + '" autocomplete="off">'
         + '</div></div>'
-      + '<div class="field"><label>Peones</label>'
-      + '<div class="money-wrap"><span class="money-prefix">$</span>'
+      + '<div class="field"><label>Cobro peones</label>'
+        + '<div class="money-wrap"><span class="money-prefix">$</span>'
         + '<input type="number" id="real-peones" inputmode="numeric" placeholder="0" min="0" value="' + (j.costoPeones || '') + '" autocomplete="off">'
-      + '</div></div>'
-      + '<div class="field"><label>Adicionales</label>'
-      + '<div class="money-wrap"><span class="money-prefix">$</span>'
+        + '</div></div>'
+      + '<div class="field"><label>Cobro adicionales</label>'
+        + '<div class="money-wrap"><span class="money-prefix">$</span>'
         + '<input type="number" id="real-adicionales" inputmode="numeric" placeholder="0" min="0" value="' + (j.adicionales || '') + '" autocomplete="off">'
-      + '</div></div>'
+        + '</div></div>'
+      + '<div class="field"><label>Total cobrado</label>'
+        + '<div class="money-wrap"><span class="money-prefix">$</span>'
+        + '<input type="number" id="real-total" inputmode="numeric" placeholder="0" min="0" value="" autocomplete="off" readonly style="background:#f5f5f5">'
+        + '</div></div>'
       + (hasG ? '<div class="field"><label>Gastos del día</label>'
         + '<div class="field-hint">Combustible, peajes, etc. — total del día para esta unidad</div>'
         + '<div class="money-wrap"><span class="money-prefix">$</span>'
@@ -741,19 +756,18 @@
 
     // Realizar — guardar
     on('btn-realizar-save', function () {
-      var cobrado = parseMoney(document.getElementById('real-cobrado') ? document.getElementById('real-cobrado').value : '');
-      if (!cobrado) { showToast('Ingresá el total cobrado'); return; }
+      var camioneta = parseMoney(document.getElementById('real-camioneta') ? document.getElementById('real-camioneta').value : '');
+      if (!camioneta) { showToast('Ingresá el cobro de camioneta'); return; }
+      var peonesReal      = parseMoney(document.getElementById('real-peones')      ? document.getElementById('real-peones').value      : '');
+      var adicionalesReal = parseMoney(document.getElementById('real-adicionales') ? document.getElementById('real-adicionales').value : '');
+      var totalCobrado    = camioneta + (peonesReal || 0) + (adicionalesReal || 0);
       var gastosEl = document.getElementById('real-gastos');
       var gastos   = gastosEl ? parseMoney(gastosEl.value) : 0;
       var comp     = document.getElementById('real-comprobante') ? document.getElementById('real-comprobante').value : 'no_aplica';
       var gananciaEl = document.getElementById('real-ganancia');
       var ganancia   = Math.round(Number(gananciaEl ? gananciaEl.value : 0) || 0);
       if (tieneGastos(j.unidad)) saveGastos(j.fecha, j.unidad, gastos);
-      var peonesRealEl = document.getElementById('real-peones');
-      var peonesReal = peonesRealEl ? parseMoney(peonesRealEl.value) : (j.costoPeones || 0);
-      var adicionalesRealEl = document.getElementById('real-adicionales');
-      var adicionalesReal = adicionalesRealEl ? parseMoney(adicionalesRealEl.value) : (j.adicionales || 0);
-      var jobReal = Object.assign({}, j, { totalCobrado: cobrado, gananciaNeta: ganancia, comprobante: comp, costoPeones: peonesReal, adicionales: adicionalesReal, estado: 'realizado' });
+      var jobReal = Object.assign({}, j, { cobroCamioneta: camioneta, totalCobrado: totalCobrado, gananciaNeta: ganancia, comprobante: comp, costoPeones: peonesReal, adicionales: adicionalesReal, estado: 'realizado' });
       var savedReal = saveJob(jobReal);
       syncJobToSheet(savedReal, gastos);
       showToast('¡Trabajo realizado! ✓');
@@ -781,34 +795,57 @@
     if (confUnidad) confUnidad.addEventListener('change', updateConfPreview);
 
     // Ganancia editable — detalle realizado
-    on('btn-guardar-ganancia', function () {
-      var ganEl = document.getElementById('edit-ganancia');
-      var gan   = Math.round(Number(ganEl ? ganEl.value : (j.gananciaNeta || 0)) || 0);
-      var jobGan = Object.assign({}, j, { gananciaNeta: gan });
-      var savedGan = saveJob(jobGan);
-      syncJobToSheet(savedGan);
-      showToast('Ganancia actualizada ✓');
+    on('btn-guardar-cierre', function () {
+      var camEl  = document.getElementById('edit-camioneta');
+      var peoEl  = document.getElementById('edit-peones');
+      var addEl  = document.getElementById('edit-adicionales');
+      var ganEl  = document.getElementById('edit-ganancia');
+      var cam    = parseMoney(camEl ? camEl.value : '') || 0;
+      var peo    = parseMoney(peoEl ? peoEl.value : '') || 0;
+      var add    = parseMoney(addEl ? addEl.value : '') || 0;
+      var gan    = Math.round(Number(ganEl ? ganEl.value : (j.gananciaNeta || 0)) || 0);
+      var total  = cam + peo + add;
+      var jobUpd = Object.assign({}, j, { cobroCamioneta: cam, costoPeones: peo, adicionales: add, totalCobrado: total, gananciaNeta: gan });
+      var saved  = saveJob(jobUpd);
+      syncJobToSheet(saved);
+      showToast('Cobros actualizados ✓');
       renderOverlay();
       render();
     });
+    // Actualizar total en tiempo real en el Cierre
+    function updateCierreTotal() {
+      var cam = parseMoney(document.getElementById('edit-camioneta') ? document.getElementById('edit-camioneta').value : '') || 0;
+      var peo = parseMoney(document.getElementById('edit-peones')    ? document.getElementById('edit-peones').value    : '') || 0;
+      var add = parseMoney(document.getElementById('edit-adicionales') ? document.getElementById('edit-adicionales').value : '') || 0;
+      var el  = document.getElementById('cierre-total');
+      if (el) el.textContent = formatMoney(cam + peo + add);
+    }
+    var editCam = document.getElementById('edit-camioneta');
+    var editPeo = document.getElementById('edit-peones');
+    var editAdd = document.getElementById('edit-adicionales');
+    if (editCam) editCam.addEventListener('input', updateCierreTotal);
+    if (editPeo) editPeo.addEventListener('input', updateCierreTotal);
+    if (editAdd) editAdd.addEventListener('input', updateCierreTotal);
 
     // Preview en tiempo real — realizar (actualiza el input de ganancia)
     function updateRealPreview() {
-      var cobrado  = parseMoney(document.getElementById('real-cobrado') ? document.getElementById('real-cobrado').value : '');
-      var gastosEl = document.getElementById('real-gastos');
-      var gastos   = gastosEl ? parseMoney(gastosEl.value) : 0;
-      var peones   = parseMoney(document.getElementById('real-peones') ? document.getElementById('real-peones').value : '');
-      var adics    = parseMoney(document.getElementById('real-adicionales') ? document.getElementById('real-adicionales').value : '');
-      var ganEl    = document.getElementById('real-ganancia');
+      var camioneta = parseMoney(document.getElementById('real-camioneta') ? document.getElementById('real-camioneta').value : '');
+      var peones    = parseMoney(document.getElementById('real-peones')    ? document.getElementById('real-peones').value    : '');
+      var adics     = parseMoney(document.getElementById('real-adicionales') ? document.getElementById('real-adicionales').value : '');
+      var gastosEl  = document.getElementById('real-gastos');
+      var gastos    = gastosEl ? parseMoney(gastosEl.value) : 0;
+      var ganEl     = document.getElementById('real-ganancia');
+      var totalEl   = document.getElementById('real-total');
+      if (totalEl) totalEl.value = (camioneta || 0) + (peones || 0) + (adics || 0) || '';
       if (!ganEl) return;
-      if (!cobrado) { ganEl.value = 0; return; }
-      ganEl.value = calcGanancia(j.unidad, cobrado, gastos, j.fecha) - (peones || 0) - (adics || 0);
+      if (!camioneta) { ganEl.value = 0; return; }
+      ganEl.value = calcGanancia(j.unidad, camioneta, gastos, j.fecha);
     }
-    var realCobrado    = document.getElementById('real-cobrado');
+    var realCamioneta  = document.getElementById('real-camioneta');
     var realGastos     = document.getElementById('real-gastos');
     var realPeones     = document.getElementById('real-peones');
     var realAdicionales = document.getElementById('real-adicionales');
-    if (realCobrado)     { realCobrado.addEventListener('input', updateRealPreview); updateRealPreview(); }
+    if (realCamioneta)   { realCamioneta.addEventListener('input', updateRealPreview); updateRealPreview(); }
     if (realGastos)        realGastos.addEventListener('input', updateRealPreview);
     if (realPeones)        realPeones.addEventListener('input', updateRealPreview);
     if (realAdicionales)   realAdicionales.addEventListener('input', updateRealPreview);

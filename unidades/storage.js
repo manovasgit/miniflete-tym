@@ -162,6 +162,7 @@ function _rowToJob(row) {
     peones:          row[7]           || 'sin_peones',
     adicionales:     Number(row[8])   || 0,
     costoPeones:     0,
+    cobroCamioneta:  0,
     estado:          row[10]          || 'nuevo',
     gananciaNeta:    Number(row[12])  || 0,
     actualizadoEn:   Number(row[13])  || Date.now(),
