@@ -36,18 +36,18 @@ function generarComanda(job) {
   if (job.barrioEntrega)   lines.push(job.barrioEntrega);
   if (job.telefonoEntrega) lines.push(job.telefonoEntrega);
 
-  // Precios
-  function fmtP(n) { return '$' + Math.round(n || 0).toLocaleString('es-AR'); }
-  if (job.precioCamioneta) lines.push(`*Precio camioneta:* ${fmtP(job.precioCamioneta)}`);
-  if (job.costoPeones)     lines.push(`*Peones:* ${fmtP(job.costoPeones)}`);
-  if (job.adicionales)     lines.push(`*Adicionales:* ${fmtP(job.adicionales)}`);
-
   lines.push(`*Pago* ${PAGO_TXT[job.formaPago] || job.formaPago || ''}`);
   lines.push(`*Viaja* ${VIAJA_TXT[job.viajaEnUnidad] || job.viajaEnUnidad || ''}`);
 
   if (job.aclaraciones && job.aclaraciones.trim()) {
     lines.push(job.aclaraciones.trim());
   }
+
+  // Precios al final
+  function fmtP(n) { return '$' + Math.round(n || 0).toLocaleString('es-AR'); }
+  if (job.precioCamioneta) lines.push(`*Precio camioneta:* ${fmtP(job.precioCamioneta)}`);
+  if (job.costoPeones)     lines.push(`*Peones:* ${fmtP(job.costoPeones)}`);
+  if (job.adicionales)     lines.push(`*Adicionales:* ${fmtP(job.adicionales)}`);
 
   return lines.join('\n');
 }
