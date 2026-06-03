@@ -130,29 +130,51 @@ const GS = (function () {
   }
 
   // ── Mapeo job → fila del sheet ───────────────────────────────────────────
-  // Columnas: A-ID B-Fecha C-Unidad D-Cliente E-Origen F-Destino
-  //           G-PrecioCamioneta H-Peones I-Escalera J-Gastos
-  //           K-Estado L-Comanda M-Ganancia N-Timestamp O-JSON
+  // A=Fecha  B=Hora  C=Estado  D=Cliente  E=Tel.Retiro  F=Tel.Entrega
+  // G=Inventario  H=Retiro  I=Piso R.  J=Barrio R.
+  // K=Entrega  L=Piso E.  M=Barrio E.  N=Peones  O=Unidad
+  // P=Canal  Q=Forma Pago  R=Viaja  S=P.Camioneta  T=Adicionales
+  // U=Costo Peones  V=Total Cobrado  W=Ganancia Neta  X=Aclaraciones
+  // Y=ID (uso interno app)  Z=JSON completo
+  var _PEON_LBL  = { sin_peones:'Sin peones', ascensor:'Ascensor', no_se:'No sé si entra', escaleras:'Escaleras' };
+  var _PAGO_LBL  = { efectivo:'Efectivo', transferencia:'Transferencia' };
+  var _VIAJ_LBL  = { si:'Sí', no:'No', movilidad:'Tiene movilidad propia' };
+
+  function _fechaFmt(f) {
+    if (!f) return '';
+    var p = f.split('-');
+    return p.length === 3 ? parseInt(p[2]) + '/' + parseInt(p[1]) + '/' + p[0] : f;
+  }
+
   function jobToRow(job, gastos) {
-    var u       = (typeof getUnidad === 'function') ? getUnidad(job.unidad) : null;
-    var origen  = [job.barrioRetiro,  job.calleRetiro ].filter(Boolean).join(' - ');
-    var destino = [job.barrioEntrega, job.calleEntrega].filter(Boolean).join(' - ');
+    var u = (typeof getUnidad === 'function') ? getUnidad(job.unidad) : null;
     return [
-      job.id               || '',
-      job.fecha            || '',
-      u ? u.nombre         : (job.unidad || ''),
-      job.nombre           || '',
-      origen,
-      destino,
-      job.precioCamioneta  || 0,
-      job.peones           || '',
-      job.adicionales      || 0,
-      gastos               !== undefined ? gastos : 0,
-      job.estado           || '',
-      '',                          // L: Comanda (no se guarda)
-      job.gananciaNeta     || 0,
-      job.actualizadoEn    || Date.now(),
-      JSON.stringify(job),         // O: JSON completo para reconstrucción fiel
+      _fechaFmt(job.fecha),                              // A: Fecha
+      job.hora             || '',                        // B: Hora
+      job.estado           || '',                        // C: Estado
+      job.nombre           || '',                        // D: Cliente
+      job.telefonoRetiro   || '',                        // E: Tel. Retiro
+      job.telefonoEntrega  || '',                        // F: Tel. Entrega
+      job.inventario       || '',                        // G: Inventario
+      job.calleRetiro      || '',                        // H: Retiro
+      job.pisoRetiro       || '',                        // I: Piso R.
+      job.barrioRetiro     || '',                        // J: Barrio R.
+      job.calleEntrega     || '',                        // K: Entrega
+      job.pisoEntrega      || '',                        // L: Piso E.
+      job.barrioEntrega    || '',                        // M: Barrio E.
+      _PEON_LBL[job.peones] || job.peones || '',         // N: Peones
+      u ? u.nombre : (job.unidad || ''),                 // O: Unidad
+      job.canal            || 'web',                     // P: Canal
+      _PAGO_LBL[job.formaPago] || job.formaPago || '',   // Q: Forma Pago
+      _VIAJ_LBL[job.viajaEnUnidad] || job.viajaEnUnidad || '', // R: Viaja
+      job.precioCamioneta  || 0,                         // S: P. Camioneta
+      job.adicionales      || 0,                         // T: Adicionales
+      job.costoPeones      || 0,                         // U: Costo Peones
+      job.totalCobrado     || 0,                         // V: Total Cobrado
+      job.gananciaNeta     || 0,                         // W: Ganancia Neta
+      job.aclaraciones     || '',                        // X: Aclaraciones
+      job.id               || '',                        // Y: ID (tracking)
+      JSON.stringify(job),                               // Z: JSON completo
     ];
   }
 
@@ -166,7 +188,7 @@ const GS = (function () {
 
   // ── CRUD ─────────────────────────────────────────────────────────────────
   function readAll() {
-    return _req('GET', '/values/' + _rangeUrl(SHEET_NAME + '!A:O'));
+    return _req('GET', '/values/' + _rangeUrl(SHEET_NAME + '!A:Z'));
   }
 
   function appendJob(job, gastos) {
@@ -179,7 +201,7 @@ const GS = (function () {
   }
 
   function updateJob(rowNum, job, gastos) {
-    var range = SHEET_NAME + '!A' + rowNum + ':O' + rowNum;
+    var range = SHEET_NAME + '!A' + rowNum + ':Z' + rowNum;
     return _req('PUT',
       '/values/' + _rangeUrl(range) + '?valueInputOption=USER_ENTERED',
       { values: [jobToRow(job, gastos)] }
@@ -217,8 +239,9 @@ const GS = (function () {
   function findRowByJobId(jobId) {
     return readAll().then(function (data) {
       var rows = data.values || [];
-      for (var i = 1; i < rows.length; i++) {   // i=0 es la cabecera
-        if (rows[i][0] === jobId) return i + 1; // 1-based
+      for (var i = 1; i < rows.length; i++) {
+        if (rows[i][24] === jobId) return i + 1; // Y col (nuevo formato)
+        if (rows[i][0]  === jobId) return i + 1; // A col (formato viejo, fallback)
       }
       return null;
     });

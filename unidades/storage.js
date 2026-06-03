@@ -111,15 +111,15 @@ function initFromSheets() {
     var sheetJobs = [];
 
     rows.forEach(function (row, i) {
-      var id = row[0];
+      // Nuevo formato: ID en columna Y (índice 24), JSON en Z (índice 25)
+      // Formato viejo: ID en columna A (índice 0), JSON en O (índice 14)
+      var id = row[24] || (String(row[0] || '').startsWith('job_') ? row[0] : null);
       if (!id) return;
-      _rowMap[id] = i + 2; // 1-based + 1 por cabecera
+      _rowMap[id] = i + 2;
 
-      // Columna O (índice 14): JSON completo del job
       var job = null;
-      if (row[14]) {
-        try { job = JSON.parse(row[14]); } catch (e) {}
-      }
+      if (row[25]) { try { job = JSON.parse(row[25]); } catch (e) {} }
+      if (!job && row[14]) { try { job = JSON.parse(row[14]); } catch (e) {} }
       if (!job) job = _rowToJob(row);
       sheetJobs.push(job);
     });
@@ -141,35 +141,53 @@ function initFromSheets() {
   });
 }
 
-// Reconstruye un job desde columnas A-N (fallback si no hay columna O)
+// Reconstruye un job desde las columnas del sheet (nuevo formato A-Z)
 function _rowToJob(row) {
   var unidadId = null;
   if (typeof UNIDADES !== 'undefined') {
     for (var k = 0; k < UNIDADES.length; k++) {
-      if (UNIDADES[k].nombre === row[2]) { unidadId = UNIDADES[k].id; break; }
+      if (UNIDADES[k].nombre === row[14]) { unidadId = UNIDADES[k].id; break; } // O: Unidad
     }
   }
+  // Fecha: D/M/YYYY → YYYY-MM-DD
+  var fechaStr = row[0] || '';
+  if (fechaStr && fechaStr.indexOf('/') >= 0) {
+    var fp = fechaStr.split('/');
+    if (fp.length === 3) fechaStr = fp[2] + '-' + fp[1].padStart(2,'0') + '-' + fp[0].padStart(2,'0');
+  }
+  // Peones: etiqueta → clave
+  var pLbl = (row[13] || '').toLowerCase();
+  var peones = pLbl.indexOf('escalera') >= 0 ? 'escaleras'
+             : pLbl.indexOf('ascensor') >= 0 ? 'ascensor'
+             : pLbl.indexOf('no') >= 0        ? 'no_se'
+             : 'sin_peones';
   return {
-    id:              row[0]           || generateId(),
-    fecha:           row[1]           || '',
-    unidad:          unidadId,
-    nombre:          row[3]           || '',
-    barrioRetiro:    row[4]           || '',
-    calleRetiro:     '',
-    barrioEntrega:   row[5]           || '',
-    calleEntrega:    '',
-    precioCamioneta: Number(row[6])   || 0,
-    peones:          row[7]           || 'sin_peones',
-    adicionales:     Number(row[8])   || 0,
-    costoPeones:     0,
-    cobroCamioneta:  0,
-    estado:          row[10]          || 'nuevo',
-    gananciaNeta:    Number(row[12])  || 0,
-    actualizadoEn:   Number(row[13])  || Date.now(),
-    canal: 'whatsapp', hora: '09:00', telefonoRetiro: '', telefonoEntrega: '',
-    inventario: '', pisoRetiro: '', pisoEntrega: '', formaPago: 'efectivo',
-    viajaEnUnidad: 'no', aclaraciones: '', comprobante: 'no_aplica',
-    totalCobrado: 0, creadoEn: Date.now(),
+    id:              row[24]          || generateId(),   // Y
+    fecha:           fechaStr,
+    hora:            row[1]           || '09:00',        // B
+    estado:          row[2]           || 'nuevo',        // C
+    nombre:          row[3]           || '',             // D
+    telefonoRetiro:  row[4]           || '',             // E
+    telefonoEntrega: row[5]           || '',             // F
+    inventario:      row[6]           || '',             // G
+    calleRetiro:     row[7]           || '',             // H
+    pisoRetiro:      row[8]           || '',             // I
+    barrioRetiro:    row[9]           || '',             // J
+    calleEntrega:    row[10]          || '',             // K
+    pisoEntrega:     row[11]          || '',             // L
+    barrioEntrega:   row[12]          || '',             // M
+    peones:          peones,                             // N
+    unidad:          unidadId,                           // O
+    canal:           row[15]          || 'web',          // P
+    formaPago:       /transfer/i.test(row[16] || '') ? 'transferencia' : 'efectivo', // Q
+    viajaEnUnidad:   /^s[ií]/i.test(row[17] || '') ? 'si' : (/movilidad/i.test(row[17] || '') ? 'movilidad' : 'no'), // R
+    precioCamioneta: Number(row[18])  || 0,             // S
+    adicionales:     Number(row[19])  || 0,             // T
+    costoPeones:     Number(row[20])  || 0,             // U
+    totalCobrado:    Number(row[21])  || 0,             // V
+    gananciaNeta:    Number(row[22])  || 0,             // W
+    aclaraciones:    row[23]          || '',             // X
+    cobroCamioneta:  0, comprobante: 'no_aplica', creadoEn: Date.now(), actualizadoEn: Date.now(),
   };
 }
 
