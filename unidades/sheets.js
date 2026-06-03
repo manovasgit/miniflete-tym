@@ -4,8 +4,8 @@ const GS = (function () {
   'use strict';
 
   var CLIENT_ID    = '432666695416-nh5jtjf2bkk430f0cdtfhpthq5qqhgf3.apps.googleusercontent.com';
-  var SHEET_ID     = '1mubnuNuOmRYcnZSv-D3--qovJJ2eh74K6ITVYxFS_Jw';
-  var SHEET_NAME   = 'Hoja 1';
+  var SHEET_ID     = '13NFdfgd9L3P8loIsBFU6Hy9KLeJx5HVET0M3MeLee2k';
+  var SHEET_NAME   = 'Trabajos';
   var SCOPE        = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/gmail.modify';
   var TOKEN_KEY    = 'mtym_gtoken';
   var STATE_KEY    = 'mtym_oauth_state';
