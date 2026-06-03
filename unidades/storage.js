@@ -1,11 +1,19 @@
 // storage.js — caché en memoria + localStorage (backup offline) + Google Sheets (nube)
 
-const JOBS_KEY   = 'mtym_jobs_v3';
-const GASTOS_KEY = 'mtym_gastos_v3';
+const JOBS_KEY    = 'mtym_jobs_v3';
+const GASTOS_KEY  = 'mtym_gastos_v3';
+const ROW_MAP_KEY = 'mtym_rowmap';
 
 var _jobs   = null;  // array en memoria, null = todavía no cargado
 var _gastos = null;
-var _rowMap = {};    // { jobId: rowNumber (1-based) } para updates/deletes en Sheet
+var _rowMap = (function() {
+  try { return JSON.parse(localStorage.getItem(ROW_MAP_KEY) || '{}'); }
+  catch (e) { return {}; }
+})();
+
+function _saveRowMap() {
+  localStorage.setItem(ROW_MAP_KEY, JSON.stringify(_rowMap));
+}
 
 // ── Helpers localStorage ──────────────────────────────────────────────────
 function _loadJobsLocal() {
@@ -107,7 +115,7 @@ function initFromSheets() {
 
   return GS.readAll().then(function (data) {
     var rows = (data.values || []).slice(1); // omitir fila de cabecera
-    _rowMap = {};
+    _rowMap = {};   // se reconstruye desde el sheet
     var sheetJobs = [];
 
     rows.forEach(function (row, i) {
@@ -133,6 +141,7 @@ function initFromSheets() {
 
     _jobs = sheetJobs.concat(localOnly);
     _saveJobsLocal();
+    _saveRowMap();  // persistir el mapa para evitar duplicados en próxima sesión
 
     return { source: 'sheets', count: sheetJobs.length };
   }).catch(function (e) {
@@ -209,7 +218,7 @@ function syncJobToSheet(job, gastosOverride) {
   return GS.appendJob(job, gastos).then(function (resp) {
     if (resp && resp.updates && resp.updates.updatedRange) {
       var m = resp.updates.updatedRange.match(/(\d+)$/);
-      if (m) _rowMap[job.id] = Number(m[1]);
+      if (m) { _rowMap[job.id] = Number(m[1]); _saveRowMap(); }
     }
   }).catch(function (e) {
     console.warn('Sheet append failed:', e.message);
@@ -222,6 +231,7 @@ function syncDeleteFromSheet(id) {
 
   var rowNum = _rowMap[id];
   delete _rowMap[id];
+  _saveRowMap();
 
   if (rowNum) {
     return GS.deleteJob(rowNum).catch(function (e) {
