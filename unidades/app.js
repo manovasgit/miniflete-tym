@@ -920,13 +920,19 @@
           return '<option value="' + u.id + '">' + esc(u.nombre) + '</option>';
         }).join('');
 
+    var gmailBtn = (typeof GMAIL !== 'undefined' && GS.isConnected())
+      ? '<button class="btn-outline" id="btn-gmail-sync" style="width:100%;margin-bottom:12px">📥 Traer trabajos desde Gmail</button>'
+      : '';
+
     return '<div class="ov-header">'
       + '<button class="ov-back" id="btn-importar-close">‹</button>'
       + '<h2>Importar desde email</h2>'
       + '</div>'
       + '<div class="ov-body">'
-      + '<p class="import-hint">Pegá el cuerpo del mail de confirmación de Forminator:</p>'
-      + '<div class="field"><textarea id="import-text" rows="8" placeholder="*DD-MM-AAAA*&#10;*HH:MM - HH:MM*&#10;*Nombre*&#10;..."></textarea></div>'
+      + gmailBtn
+      + '<div id="gmail-results"></div>'
+      + '<p class="import-hint">O pegá el cuerpo del mail manualmente:</p>'
+      + '<div class="field"><textarea id="import-text" rows="6" placeholder="*DD-MM-AAAA*&#10;*HH:MM*&#10;*Nombre*&#10;..."></textarea></div>'
       + '<div class="field"><label>Unidad asignada</label>'
         + '<select id="import-unidad">' + unidadOpts + '</select>'
       + '</div>'
@@ -938,6 +944,78 @@
     var closeBtn = document.getElementById('btn-importar-close');
     if (closeBtn) closeBtn.addEventListener('click', function () { closeOverlay(); render(); });
 
+    // ── Gmail sync ──────────────────────────────────────────────────────
+    var gmailBtn = document.getElementById('btn-gmail-sync');
+    if (gmailBtn) {
+      gmailBtn.addEventListener('click', function () {
+        gmailBtn.disabled = true;
+        gmailBtn.textContent = 'Buscando…';
+        var resultsDiv = document.getElementById('gmail-results');
+
+        GMAIL.fetchUnread()
+          .then(function (emails) {
+            gmailBtn.textContent = '📥 Traer trabajos desde Gmail';
+            gmailBtn.disabled = false;
+
+            if (!emails.length) {
+              resultsDiv.innerHTML = '<p class="import-hint" style="color:var(--text-muted)">No hay mails nuevos de Forminator.</p>';
+              return;
+            }
+
+            // Parsear y mostrar lista
+            var parsed = emails.map(function (e) {
+              var job = parseEmailForminator(e.text);
+              return job ? { gmailId: e.id, job: job } : null;
+            }).filter(Boolean);
+
+            if (!parsed.length) {
+              resultsDiv.innerHTML = '<p class="import-hint" style="color:var(--text-muted)">Se encontraron mails pero no pudieron parsearse.</p>';
+              return;
+            }
+
+            var html = '<div class="gmail-list">'
+              + '<p class="import-hint"><strong>' + parsed.length + ' trabajo(s) nuevo(s) encontrado(s):</strong></p>';
+            parsed.forEach(function (p, i) {
+              html += '<label class="gmail-item">'
+                + '<input type="checkbox" class="gmail-check" data-idx="' + i + '" checked>'
+                + '<span>' + esc(p.job.fecha) + ' ' + esc(p.job.hora) + ' — ' + esc(p.job.nombre) + '</span>'
+                + '</label>';
+            });
+            html += '<button class="btn-primary" id="btn-gmail-import-all" style="margin-top:10px;width:100%">Importar seleccionados</button>'
+              + '</div>';
+            resultsDiv.innerHTML = html;
+
+            // Handler importar todos los seleccionados
+            document.getElementById('btn-gmail-import-all').addEventListener('click', function () {
+              var checks = resultsDiv.querySelectorAll('.gmail-check:checked');
+              var count = 0;
+              checks.forEach(function (cb) {
+                var idx = Number(cb.dataset.idx);
+                var item = parsed[idx];
+                item.job.id = generateId();
+                item.job.unidad = null;
+                saveJob(item.job);
+                if (GS.isConnected()) syncJobToSheet(item.job);
+                GMAIL.markRead(item.gmailId).catch(function () {});
+                count++;
+              });
+              resultsDiv.innerHTML = '';
+              closeOverlay();
+              render();
+              showToast(count + ' trabajo(s) importado(s) ✓');
+            });
+          })
+          .catch(function (err) {
+            gmailBtn.textContent = '📥 Traer trabajos desde Gmail';
+            gmailBtn.disabled = false;
+            showToast(err.message.indexOf('SCOPE') >= 0
+              ? 'Reconectá con Google para habilitar Gmail'
+              : 'Error al leer Gmail: ' + err.message);
+          });
+      });
+    }
+
+    // ── Import manual ───────────────────────────────────────────────────
     var okBtn = document.getElementById('btn-importar-ok');
     if (okBtn) okBtn.addEventListener('click', function () {
       var text    = document.getElementById('import-text')   ? document.getElementById('import-text').value   : '';
