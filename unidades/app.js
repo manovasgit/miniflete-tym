@@ -1048,6 +1048,44 @@
     return best;
   }
 
+  function _looksLikePhone(s) {
+    var digits = s.replace(/[^\d]/g, '');
+    return digits.length >= 7 && digits.length <= 15;
+  }
+
+  function _parseAddressBlock(blockLines) {
+    var result = { calle: '', piso: '', barrio: '', telefono: '' };
+    var lines = blockLines.slice();
+    if (!lines.length) return result;
+
+    for (var i = lines.length - 1; i >= 0; i--) {
+      if (_looksLikePhone(lines[i])) {
+        result.telefono = lines.splice(i, 1)[0];
+        break;
+      }
+    }
+
+    if (!lines.length) return result;
+
+    var sr = lines.shift();
+    var pm = sr.match(/^(.+?\d+)\s{2,}(.+)$/);
+    if (pm) {
+      result.calle = pm[1].trim();
+      result.piso = pm[2].trim();
+    } else {
+      result.calle = sr.trim();
+    }
+
+    if (!result.piso && lines.length >= 2) {
+      result.piso = lines.shift().trim();
+      result.barrio = lines.join(' ').trim();
+    } else if (lines.length >= 1) {
+      result.barrio = lines.join(' ').trim();
+    }
+
+    return result;
+  }
+
   function parseEmailForminator(text) {
     var lines = text.split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l; });
 
@@ -1063,12 +1101,14 @@
       totalCobrado: 0, gananciaNeta: 0, comprobante: 'no_aplica',
     };
 
-    // Date: *DD-MM-YYYY*
+    // Date: *DD-MM-YYYY* (1 or 2 digit day/month)
     var dateIdx = -1;
     for (var i = 0; i < lines.length; i++) {
-      var dm = lines[i].match(/^\*(\d{2})-(\d{2})-(\d{4})\*$/);
+      var dm = lines[i].match(/^\*(\d{1,2})-(\d{1,2})-(\d{4})\*$/);
       if (dm) {
-        result.fecha = dm[3] + '-' + dm[2] + '-' + dm[1];
+        var dd = dm[1].length < 2 ? '0' + dm[1] : dm[1];
+        var mm = dm[2].length < 2 ? '0' + dm[2] : dm[2];
+        result.fecha = dm[3] + '-' + mm + '-' + dd;
         dateIdx = i;
         break;
       }
@@ -1107,38 +1147,33 @@
       idx++;
     }
 
+    function collectBlock() {
+      var block = [];
+      while (idx < lines.length && !/^\*/.test(lines[idx])) {
+        block.push(lines[idx]);
+        idx++;
+      }
+      return block;
+    }
+
     // Dir retiro:
-    if (idx < lines.length && /^\*Dir retiro:\*$/i.test(lines[idx])) {
+    if (idx < lines.length && /^\*\s*Dir\s+retiro\s*:?\s*\*?$/i.test(lines[idx])) {
       idx++;
-      if (idx < lines.length && !/^\*/.test(lines[idx])) {
-        var sr = lines[idx]; idx++;
-        var pm = sr.match(/^(.+?\d+)\s{2,}(.+)$/);
-        if (pm) { result.calleRetiro = pm[1].trim(); result.pisoRetiro = pm[2].trim(); }
-        else    { result.calleRetiro = sr.trim(); }
-      }
-      if (idx < lines.length && !/^\*/.test(lines[idx]) && !/^\d{7,}/.test(lines[idx])) {
-        result.barrioRetiro = lines[idx]; idx++;
-      }
-      if (idx < lines.length && /^\d/.test(lines[idx])) {
-        result.telefonoRetiro = lines[idx]; idx++;
-      }
+      var retiro = _parseAddressBlock(collectBlock());
+      result.calleRetiro    = retiro.calle;
+      result.pisoRetiro     = retiro.piso;
+      result.barrioRetiro   = retiro.barrio;
+      result.telefonoRetiro = retiro.telefono;
     }
 
     // Dir entrega:
-    if (idx < lines.length && /^\*Dir entrega:\*$/i.test(lines[idx])) {
+    if (idx < lines.length && /^\*\s*Dir\s+entrega\s*:?\s*\*?$/i.test(lines[idx])) {
       idx++;
-      if (idx < lines.length && !/^\*/.test(lines[idx])) {
-        var se = lines[idx]; idx++;
-        var pe = se.match(/^(.+?\d+)\s{2,}(.+)$/);
-        if (pe) { result.calleEntrega = pe[1].trim(); result.pisoEntrega = pe[2].trim(); }
-        else    { result.calleEntrega = se.trim(); }
-      }
-      if (idx < lines.length && !/^\*/.test(lines[idx]) && !/^\d{7,}/.test(lines[idx])) {
-        result.barrioEntrega = lines[idx]; idx++;
-      }
-      if (idx < lines.length && /^\d/.test(lines[idx])) {
-        result.telefonoEntrega = lines[idx]; idx++;
-      }
+      var entrega = _parseAddressBlock(collectBlock());
+      result.calleEntrega    = entrega.calle;
+      result.pisoEntrega     = entrega.piso;
+      result.barrioEntrega   = entrega.barrio;
+      result.telefonoEntrega = entrega.telefono;
     }
 
     // Remaining lines: Pago, Viaja, extras

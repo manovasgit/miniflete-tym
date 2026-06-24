@@ -49,6 +49,7 @@ const GMAIL = (function () {
       .replace(/<\/div>/gi, '\n')
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
+      .replace(/<(?:b|strong)(?:\s[^>]*)?>([^<]*)<\/(?:b|strong)>/gi, '*$1*')
       .replace(/<[^>]+>/g, '');
     // decodificar entidades restantes
     var tmp = document.createElement('textarea');
@@ -102,8 +103,8 @@ const GMAIL = (function () {
         // Filtrar solo los que tienen el formato de Forminator
         return emails.filter(function (e) {
           return e.text
-            && /\*Dir retiro:\*/i.test(e.text)
-            && /\*Peones\*/i.test(e.text);
+            && /Dir retiro/i.test(e.text)
+            && /Peones/i.test(e.text);
         });
       });
   }
