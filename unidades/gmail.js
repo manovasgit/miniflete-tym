@@ -49,7 +49,6 @@ const GMAIL = (function () {
       .replace(/<\/div>/gi, '\n')
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
-      .replace(/<(?:b|strong)(?:\s[^>]*)?>([^<]*)<\/(?:b|strong)>/gi, '*$1*')
       .replace(/<[^>]+>/g, '');
     // decodificar entidades restantes
     var tmp = document.createElement('textarea');

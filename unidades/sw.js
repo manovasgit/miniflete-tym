@@ -1,4 +1,4 @@
-const CACHE = 'mtym-unidades-v25';
+const CACHE = 'mtym-unidades-v26';
 const ASSETS = [
   './',
   './index.html',

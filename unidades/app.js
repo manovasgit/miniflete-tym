@@ -1089,6 +1089,13 @@
   function parseEmailForminator(text) {
     var lines = text.split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l; });
 
+    // Quita asteriscos iniciales y finales (maneja *, ** o sin nada)
+    function sb(s) { return s.replace(/^\*+/, '').replace(/\*+$/, '').trim(); }
+    // Detecta si una línea es un header conocido (Peones, Dir retiro, etc.)
+    function isKnownHeader(s) {
+      return /^\*{0,2}\s*(Peones|Dir\s+retiro|Dir\s+entrega|Pago|Viaja)/i.test(s);
+    }
+
     var result = {
       canal: 'web', fecha: getTodayStr(), hora: '09:00',
       nombre: '', telefonoRetiro: '', telefonoEntrega: '',
@@ -1101,10 +1108,10 @@
       totalCobrado: 0, gananciaNeta: 0, comprobante: 'no_aplica',
     };
 
-    // Date: *DD-MM-YYYY* (1 or 2 digit day/month)
+    // Date: acepta *DD-MM-YYYY*, **DD-MM-YYYY** o DD-MM-YYYY
     var dateIdx = -1;
     for (var i = 0; i < lines.length; i++) {
-      var dm = lines[i].match(/^\*(\d{1,2})-(\d{1,2})-(\d{4})\*$/);
+      var dm = lines[i].match(/^\*{0,2}(\d{1,2})-(\d{1,2})-(\d{4})\*{0,2}$/);
       if (dm) {
         var dd = dm[1].length < 2 ? '0' + dm[1] : dm[1];
         var mm = dm[2].length < 2 ? '0' + dm[2] : dm[2];
@@ -1117,29 +1124,29 @@
 
     var idx = dateIdx + 1;
 
-    // Time: *HH:MM...*
+    // Time: acepta *HH:MM*, **HH:MM** o HH:MM
     if (idx < lines.length) {
-      var tm = lines[idx].match(/^\*(\d{1,2}:\d{2})/);
+      var tm = lines[idx].match(/^\*{0,2}(\d{1,2}:\d{2})/);
       if (tm) { result.hora = snapHora(tm[1]); idx++; }
     }
 
-    // Name: *Nombre*  (entire line bold)
-    if (idx < lines.length) {
-      var nm = lines[idx].match(/^\*([^*]+)\*$/);
-      if (nm) { result.nombre = nm[1].trim(); idx++; }
+    // Name: línea siguiente al horario, sin importar si tiene asteriscos
+    if (idx < lines.length && !isKnownHeader(lines[idx])) {
+      var candidate = sb(lines[idx]);
+      if (candidate) { result.nombre = candidate; idx++; }
     }
 
-    // Inventario: accumulate until *Peones*
+    // Inventario: acumula hasta encontrar *Peones* (o **Peones** o Peones)
     var inventLines = [];
-    while (idx < lines.length && !/^\*Peones\*/i.test(lines[idx])) {
-      inventLines.push(lines[idx]);
+    while (idx < lines.length && !/^\*{0,2}Peones/i.test(lines[idx])) {
+      inventLines.push(sb(lines[idx]));
       idx++;
     }
     result.inventario = inventLines.join('\n').trim();
 
-    // Peones: *Peones* ...rest
-    if (idx < lines.length && /^\*Peones\*/i.test(lines[idx])) {
-      var pt = lines[idx].replace(/^\*Peones\*\s*/i, '').toLowerCase();
+    // Peones
+    if (idx < lines.length && /^\*{0,2}Peones/i.test(lines[idx])) {
+      var pt = lines[idx].replace(/^\*{0,2}Peones\*{0,2}\s*/i, '').toLowerCase();
       if (/escalera/i.test(pt))      result.peones = 'escaleras';
       else if (/ascensor/i.test(pt)) result.peones = 'ascensor';
       else if (/no s[eé]/i.test(pt)) result.peones = 'no_se';
@@ -1157,7 +1164,7 @@
     }
 
     // Dir retiro:
-    if (idx < lines.length && /^\*\s*Dir\s+retiro\s*:?\s*\*?$/i.test(lines[idx])) {
+    if (idx < lines.length && /^\*{0,2}\s*Dir\s+retiro\s*:?\s*\*{0,2}$/i.test(lines[idx])) {
       idx++;
       var retiro = _parseAddressBlock(collectBlock());
       result.calleRetiro    = retiro.calle;
@@ -1167,7 +1174,7 @@
     }
 
     // Dir entrega:
-    if (idx < lines.length && /^\*\s*Dir\s+entrega\s*:?\s*\*?$/i.test(lines[idx])) {
+    if (idx < lines.length && /^\*{0,2}\s*Dir\s+entrega\s*:?\s*\*{0,2}$/i.test(lines[idx])) {
       idx++;
       var entrega = _parseAddressBlock(collectBlock());
       result.calleEntrega    = entrega.calle;
@@ -1178,16 +1185,16 @@
 
     // Remaining lines: Pago, Viaja, extras
     while (idx < lines.length) {
-      if (/^\*Pago\*/i.test(lines[idx])) {
-        var pg = lines[idx].replace(/^\*Pago\*\s*/i, '').toLowerCase();
+      if (/^\*{0,2}Pago/i.test(lines[idx])) {
+        var pg = lines[idx].replace(/^\*{0,2}Pago\*{0,2}\s*/i, '').toLowerCase();
         result.formaPago = /transfer/i.test(pg) ? 'transferencia' : 'efectivo';
-      } else if (/^\*Viaja\*/i.test(lines[idx])) {
-        var vj = lines[idx].replace(/^\*Viaja\*\s*/i, '');
+      } else if (/^\*{0,2}Viaja/i.test(lines[idx])) {
+        var vj = lines[idx].replace(/^\*{0,2}Viaja\*{0,2}\s*/i, '');
         if (/^s[ií]/i.test(vj))               result.viajaEnUnidad = 'si';
         else if (/movilidad|propia/i.test(vj)) result.viajaEnUnidad = 'movilidad';
         else                                   result.viajaEnUnidad = 'no';
       } else {
-        result.aclaraciones += (result.aclaraciones ? '\n' : '') + lines[idx];
+        result.aclaraciones += (result.aclaraciones ? '\n' : '') + sb(lines[idx]);
       }
       idx++;
     }
