@@ -134,12 +134,26 @@ function initFromSheets() {
 
     _ensureLoaded();
 
-    // Conservar trabajos locales que todavía no llegaron al Sheet
+    // Merge: si hay versión local más nueva que el Sheet (por actualizadoEn), usarla.
+    // Esto evita que un cambio local (ej: editar camioneta) se pise al recargar la app
+    // cuando el Sheet todavía no recibió la actualización (fallo de red, sync parcial).
+    var localMap = {};
+    (_jobs || []).forEach(function (j) { if (j.id) localMap[j.id] = j; });
+
+    var merged = sheetJobs.map(function (sheetJob) {
+      var localJob = localMap[sheetJob.id];
+      if (localJob && (localJob.actualizadoEn || 0) > (sheetJob.actualizadoEn || 0)) {
+        return localJob; // versión local más nueva → la preservamos
+      }
+      return sheetJob;
+    });
+
+    // Trabajos que solo existen en local (todavía no sincronizados al Sheet)
     var sheetIds = {};
     sheetJobs.forEach(function (j) { sheetIds[j.id] = true; });
     var localOnly = (_jobs || []).filter(function (j) { return !sheetIds[j.id]; });
 
-    _jobs = sheetJobs.concat(localOnly);
+    _jobs = merged.concat(localOnly);
     _saveJobsLocal();
     _saveRowMap();  // persistir el mapa para evitar duplicados en próxima sesión
 
