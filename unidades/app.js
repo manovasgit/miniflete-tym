@@ -1139,13 +1139,16 @@
       if (candidate) { result.nombre = candidate; idx++; }
     }
 
-    // Inventario: acumula hasta encontrar *Peones* (o **Peones** o Peones)
+    // Inventario: solo líneas con "- ", limpiando prefijo y punto final suelto
     var inventLines = [];
     while (idx < lines.length && !/^\*{0,2}Peones/i.test(lines[idx])) {
-      inventLines.push(sb(lines[idx]));
+      var il = sb(lines[idx]);
+      if (/^-\s/.test(il)) {
+        inventLines.push(il.replace(/^-\s+/, '').replace(/\s*\.\s*$/, '').trim());
+      }
       idx++;
     }
-    result.inventario = inventLines.join('\n').trim();
+    result.inventario = inventLines.join('\n');
 
     // Peones
     if (idx < lines.length && /^\*{0,2}Peones/i.test(lines[idx])) {
