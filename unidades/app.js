@@ -1159,8 +1159,9 @@
 
     function collectBlock() {
       var block = [];
-      while (idx < lines.length && !/^\*/.test(lines[idx])) {
-        block.push(lines[idx]);
+      var stopRe = /^\*{0,2}\s*(Dir\s+retiro|Dir\s+entrega|Pago|Viaja)/i;
+      while (idx < lines.length && !stopRe.test(lines[idx])) {
+        block.push(sb(lines[idx]));
         idx++;
       }
       return block;
