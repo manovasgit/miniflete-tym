@@ -1139,13 +1139,11 @@
       if (candidate) { result.nombre = candidate; idx++; }
     }
 
-    // Inventario: solo líneas con "- ", limpiando prefijo y punto final suelto
+    // Inventario: todas las líneas entre el nombre y "Peones", con o sin bullet "- "
     var inventLines = [];
     while (idx < lines.length && !/^\*{0,2}Peones/i.test(lines[idx])) {
-      var il = sb(lines[idx]);
-      if (/^-\s/.test(il)) {
-        inventLines.push(il.replace(/^-\s+/, '').replace(/\s*\.\s*$/, '').trim());
-      }
+      var il = sb(lines[idx]).replace(/^-\s+/, '').replace(/\s*\.\s*$/, '').trim();
+      if (il) inventLines.push(il);
       idx++;
     }
     result.inventario = inventLines.join('\n');
@@ -1194,7 +1192,7 @@
     while (idx < lines.length) {
       if (/^\*{0,2}Pago/i.test(lines[idx])) {
         var pg = lines[idx].replace(/^\*{0,2}Pago\*{0,2}\s*/i, '').toLowerCase();
-        result.formaPago = /transfer/i.test(pg) ? 'transferencia' : 'efectivo';
+        result.formaPago = /trans?fer/i.test(pg) ? 'transferencia' : 'efectivo';
       } else if (/^\*{0,2}Viaja/i.test(lines[idx])) {
         var vj = lines[idx].replace(/^\*{0,2}Viaja\*{0,2}\s*/i, '');
         if (/^s[ií]/i.test(vj))               result.viajaEnUnidad = 'si';
