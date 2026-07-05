@@ -42,7 +42,26 @@
     } else {
       render();
     }
+
+    setupAutoResync();
   });
+
+  // Re-sincroniza con el Sheet cada vez que la app vuelve a primer plano
+  // (ej: cambiás de celular a compu y volvés), para que ambos dispositivos
+  // vean siempre la info más reciente sin tener que cerrar y reabrir la app.
+  function setupAutoResync() {
+    var lastResync = 0;
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState !== 'visible') return;
+      if (!GS.isConnected()) return;
+      if (S.overlay || S.tab === 'nuevo') return; // no interrumpir una edición en curso
+      if (Date.now() - lastResync < 15000) return;
+      lastResync = Date.now();
+      initFromSheets().then(function (result) {
+        if (result.source === 'sheets') render();
+      });
+    });
+  }
 
   function registerSW() {
     if (!('serviceWorker' in navigator)) return;

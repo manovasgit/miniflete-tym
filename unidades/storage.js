@@ -129,6 +129,9 @@ function initFromSheets() {
       if (row[25]) { try { job = JSON.parse(row[25]); } catch (e) {} }
       if (!job && row[14]) { try { job = JSON.parse(row[14]); } catch (e) {} }
       if (!job) job = _rowToJob(row);
+      job.id = id; // forzar coincidencia con _rowMap: si el id interno del JSON
+                   // no coincide con la columna, syncJobToSheet no encuentra la
+                   // fila y termina agregando una fila duplicada en vez de actualizarla
       sheetJobs.push(job);
     });
 
@@ -143,15 +146,17 @@ function initFromSheets() {
     var merged = sheetJobs.map(function (sheetJob) {
       var localJob = localMap[sheetJob.id];
       if (localJob && (localJob.actualizadoEn || 0) > (sheetJob.actualizadoEn || 0)) {
+        syncJobToSheet(localJob); // reintentar subir el cambio que no había llegado al Sheet
         return localJob; // versión local más nueva → la preservamos
       }
       return sheetJob;
     });
 
-    // Trabajos que solo existen en local (todavía no sincronizados al Sheet)
+    // Trabajos que solo existen en local (todavía no sincronizados al Sheet, ej: sin red al crearlos)
     var sheetIds = {};
     sheetJobs.forEach(function (j) { sheetIds[j.id] = true; });
     var localOnly = (_jobs || []).filter(function (j) { return !sheetIds[j.id]; });
+    localOnly.forEach(function (j) { syncJobToSheet(j); }); // reintentar subirlos al Sheet
 
     _jobs = merged.concat(localOnly);
     _saveJobsLocal();
