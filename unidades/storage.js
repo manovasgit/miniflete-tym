@@ -105,6 +105,26 @@ function saveGastos(fechaStr, unidadId, amount) {
 
 function getAllGastos() { _ensureLoaded(); return Object.assign({}, _gastos); }
 
+// Borra filas duplicadas del Sheet de abajo hacia arriba (mayor row primero),
+// ajustando _rowMap después de cada borrado para no desalinear las filas que quedan.
+function _cleanupDuplicateRows(dupRows) {
+  var sorted = dupRows.slice().sort(function (a, b) { return b - a; });
+  var chain = Promise.resolve();
+  sorted.forEach(function (rowNum) {
+    chain = chain.then(function () {
+      return GS.deleteJob(rowNum).then(function () {
+        Object.keys(_rowMap).forEach(function (id) {
+          if (_rowMap[id] > rowNum) _rowMap[id]--;
+        });
+        _saveRowMap();
+      });
+    }).catch(function (e) {
+      console.warn('No se pudo borrar fila duplicada', rowNum, e.message);
+    });
+  });
+  return chain;
+}
+
 // ── Google Sheets: carga inicial ──────────────────────────────────────────
 // Lee todos los trabajos del Sheet y los fusiona con el caché local.
 // Retorna Promise<{ source, count? }>
@@ -115,25 +135,46 @@ function initFromSheets() {
 
   return GS.readAll().then(function (data) {
     var rows = (data.values || []).slice(1); // omitir fila de cabecera
-    _rowMap = {};   // se reconstruye desde el sheet
-    var sheetJobs = [];
+    var raw = []; // { id, row, job } de cada fila válida del Sheet
 
     rows.forEach(function (row, i) {
       // Nuevo formato: ID en columna Y (índice 24), JSON en Z (índice 25)
       // Formato viejo: ID en columna A (índice 0), JSON en O (índice 14)
       var id = row[24] || (String(row[0] || '').startsWith('job_') ? row[0] : null);
       if (!id) return;
-      _rowMap[id] = i + 2;
 
       var job = null;
       if (row[25]) { try { job = JSON.parse(row[25]); } catch (e) {} }
       if (!job && row[14]) { try { job = JSON.parse(row[14]); } catch (e) {} }
       if (!job) job = _rowToJob(row);
-      job.id = id; // forzar coincidencia con _rowMap: si el id interno del JSON
-                   // no coincide con la columna, syncJobToSheet no encuentra la
-                   // fila y termina agregando una fila duplicada en vez de actualizarla
-      sheetJobs.push(job);
+      job.id = id; // forzar coincidencia con la columna: si el id interno del JSON
+                   // no coincide, syncJobToSheet no encuentra la fila y termina
+                   // agregando una fila duplicada en vez de actualizarla
+      raw.push({ id: id, row: i + 2, job: job });
     });
+
+    // Deduplicar por id: puede haber más de una fila con el mismo id (residuo
+    // de un bug de sync viejo que a veces agregaba una fila en vez de actualizar
+    // la existente). Nos quedamos con la más reciente (actualizadoEn) y borramos
+    // físicamente las demás filas del Sheet para que no vuelvan a aparecer.
+    _rowMap = {};
+    var byId = {};
+    var dupRows = [];
+    raw.forEach(function (r) {
+      var prev = byId[r.id];
+      if (!prev) { byId[r.id] = r; return; }
+      var keepNew = (r.job.actualizadoEn || 0) >= (prev.job.actualizadoEn || 0);
+      dupRows.push(keepNew ? prev.row : r.row);
+      if (keepNew) byId[r.id] = r;
+    });
+
+    var sheetJobs = [];
+    Object.keys(byId).forEach(function (id) {
+      _rowMap[id] = byId[id].row;
+      sheetJobs.push(byId[id].job);
+    });
+
+    if (dupRows.length) _cleanupDuplicateRows(dupRows);
 
     _ensureLoaded();
 
