@@ -5,14 +5,21 @@ const GS = (function () {
 
   var CLIENT_ID    = '432666695416-nh5jtjf2bkk430f0cdtfhpthq5qqhgf3.apps.googleusercontent.com';
   var SHEET_ID     = '13NFdfgd9L3P8loIsBFU6Hy9KLeJx5HVET0M3MeLee2k';
-  var SHEET_NAME   = 'Trabajos';
+  var SHEET_NAME   = 'Trabajos'; // hoja histórica (formato viejo, ya no se escribe más acá)
   var SCOPE        = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/gmail.modify';
   var TOKEN_KEY    = 'mtym_gtoken';
   var STATE_KEY    = 'mtym_oauth_state';
   var REDIRECT_URI = 'https://manovasgit.github.io/miniflete-tym/unidades/';
   var BASE         = 'https://sheets.googleapis.com/v4/spreadsheets/' + SHEET_ID;
 
-  var _sheetGid = null;
+  var MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio',
+               'Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var HEADER_ROW = ['Fecha','Hora','Estado','Cliente','Tel. Retiro','Tel. Entrega',
+    'Inventario','Retiro','Piso R.','Barrio R.','Entrega','Piso E.','Barrio E.',
+    'Peones','Unidad','Canal','Forma Pago','Viaja','P. Camioneta','Adicionales',
+    'Costo Peones','Total Cobrado','Ganancia Neta','Aclaraciones','ID','JSON'];
+
+  var _gidCache = {}; // nombre de hoja → sheetId numérico
 
   // ── Token ────────────────────────────────────────────────────────────────
   function _saveToken(accessToken, expiresIn) {
@@ -111,21 +118,40 @@ const GS = (function () {
     });
   }
 
-  // ── Obtener el sheetId numérico (necesario para eliminar filas) ──────────
-  function _getGid() {
-    if (_sheetGid !== null) return Promise.resolve(_sheetGid);
+  // ── Hoja (tab) por mes: "Julio 2026", etc. ────────────────────────────────
+  function monthSheetName(fechaStr) {
+    var p = (fechaStr || '').split('-'); // YYYY-MM-DD
+    if (p.length !== 3) return SHEET_NAME;
+    var mIdx = parseInt(p[1], 10) - 1;
+    return (MESES[mIdx] || p[1]) + ' ' + p[0];
+  }
+
+  function _listSheets() {
     return _ensureToken().then(function (token) {
       return fetch(BASE + '?fields=sheets.properties',
         { headers: { 'Authorization': 'Bearer ' + token } })
         .then(function (r) { return r.json(); })
-        .then(function (d) {
-          var found = (d.sheets || []).filter(function (sh) {
-            return sh.properties.title === SHEET_NAME;
-          })[0];
-          if (!found) throw new Error('Hoja "' + SHEET_NAME + '" no encontrada en el Sheet');
-          _sheetGid = found.properties.sheetId;
-          return _sheetGid;
-        });
+        .then(function (d) { return d.sheets || []; });
+    });
+  }
+
+  // Devuelve el sheetId numérico de una hoja, creándola (con encabezado) si no existe.
+  function _ensureSheetTab(name) {
+    if (_gidCache[name] !== undefined) return Promise.resolve(_gidCache[name]);
+    return _listSheets().then(function (sheets) {
+      var found = sheets.filter(function (sh) { return sh.properties.title === name; })[0];
+      if (found) { _gidCache[name] = found.properties.sheetId; return _gidCache[name]; }
+
+      return _req('POST', ':batchUpdate', {
+        requests: [{ addSheet: { properties: { title: name } } }],
+      }).then(function (resp) {
+        var gid = resp.replies[0].addSheet.properties.sheetId;
+        _gidCache[name] = gid;
+        return _req('PUT',
+          '/values/' + _rangeUrl(name + '!A1:Z1') + '?valueInputOption=USER_ENTERED',
+          { values: [HEADER_ROW] }
+        ).then(function () { return gid; });
+      });
     });
   }
 
@@ -186,30 +212,34 @@ const GS = (function () {
     return encodeURIComponent(range.substring(0, bang)) + range.substring(bang);
   }
 
-  // ── CRUD ─────────────────────────────────────────────────────────────────
-  function readAll() {
-    return _req('GET', '/values/' + _rangeUrl(SHEET_NAME + '!A:Z'));
+  // ── CRUD (todas reciben el nombre de hoja/mes destino) ────────────────────
+  function readAll(sheetName) {
+    return _req('GET', '/values/' + _rangeUrl((sheetName || SHEET_NAME) + '!A:Z'));
   }
 
-  function appendJob(job, gastos) {
-    // Para append se usa solo el nombre de la hoja como rango de búsqueda
-    return _req('POST',
-      '/values/' + encodeURIComponent(SHEET_NAME) +
-      ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
-      { values: [jobToRow(job, gastos)] }
-    );
+  function appendJob(job, gastos, sheetName) {
+    var name = sheetName || monthSheetName(job.fecha);
+    return _ensureSheetTab(name).then(function () {
+      return _req('POST',
+        '/values/' + encodeURIComponent(name) +
+        ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
+        { values: [jobToRow(job, gastos)] }
+      );
+    });
   }
 
-  function updateJob(rowNum, job, gastos) {
-    var range = SHEET_NAME + '!A' + rowNum + ':Z' + rowNum;
+  function updateJob(rowNum, job, gastos, sheetName) {
+    var name  = sheetName || monthSheetName(job.fecha);
+    var range = name + '!A' + rowNum + ':Z' + rowNum;
     return _req('PUT',
       '/values/' + _rangeUrl(range) + '?valueInputOption=USER_ENTERED',
       { values: [jobToRow(job, gastos)] }
     );
   }
 
-  function deleteJob(rowNum) {
-    return _getGid().then(function (gid) {
+  function deleteJob(rowNum, sheetName) {
+    var name = sheetName || SHEET_NAME;
+    return _ensureSheetTab(name).then(function (gid) {
       return _req('POST', ':batchUpdate', {
         requests: [{
           deleteDimension: {
@@ -225,19 +255,22 @@ const GS = (function () {
     });
   }
 
-  // Busca el número de fila (1-based) de un job por su id.
-  // Retorna null si no existe.
-  // Sube múltiples filas de una sola vez (para importar backup)
-  function batchAppend(rows) {
-    return _req('POST',
-      '/values/' + encodeURIComponent(SHEET_NAME) +
-      ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
-      { values: rows }
-    );
+  // Sube múltiples filas de una sola vez (para restaurar backups viejos)
+  function batchAppend(rows, sheetName) {
+    var name = sheetName || SHEET_NAME;
+    return _ensureSheetTab(name).then(function () {
+      return _req('POST',
+        '/values/' + encodeURIComponent(name) +
+        ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
+        { values: rows }
+      );
+    });
   }
 
-  function findRowByJobId(jobId) {
-    return readAll().then(function (data) {
+  // Busca el número de fila (1-based) de un job por su id. Retorna null si no existe.
+  function findRowByJobId(jobId, sheetName) {
+    var name = sheetName || SHEET_NAME;
+    return readAll(name).then(function (data) {
       var rows = data.values || [];
       for (var i = 1; i < rows.length; i++) {
         if (rows[i][24] === jobId) return i + 1; // Y col (nuevo formato)
@@ -252,6 +285,7 @@ const GS = (function () {
     connect:            connect,
     checkRedirectToken: checkRedirectToken,
     clearToken:         clearToken,
+    monthSheetName:     monthSheetName,
     readAll:            readAll,
     appendJob:          appendJob,
     updateJob:          updateJob,

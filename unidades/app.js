@@ -23,6 +23,9 @@
   };
 
   // ── INIT ───────────────────────────────────────────────────────────────
+  // Sin sync automático: la app trabaja 100% local. Lo único que toca el
+  // Sheet es el botón "Exportar" (por día, en Resumen) y la importación
+  // manual de Gmail — nunca en segundo plano.
   document.addEventListener('DOMContentLoaded', function () {
     registerSW();
     setupBottomNav();
@@ -30,38 +33,9 @@
 
     // Verificar si la página cargó con un token OAuth en el hash (retorno del redirect)
     var justConnected = GS.checkRedirectToken();
-
-    if (GS.isConnected()) {
-      document.getElementById('main').innerHTML =
-        '<div class="loading"><div class="spinner"></div><p>Sincronizando…</p></div>';
-      initFromSheets().then(function (result) {
-        render();
-        if (justConnected) showToast('Conectado a Google Sheets ✓');
-        else if (result.source === 'sheets') showToast('Datos sincronizados ✓');
-      });
-    } else {
-      render();
-    }
-
-    setupAutoResync();
+    render();
+    if (justConnected) showToast('Conectado a Google Sheets ✓');
   });
-
-  // Re-sincroniza con el Sheet cada vez que la app vuelve a primer plano
-  // (ej: cambiás de celular a compu y volvés), para que ambos dispositivos
-  // vean siempre la info más reciente sin tener que cerrar y reabrir la app.
-  function setupAutoResync() {
-    var lastResync = 0;
-    document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState !== 'visible') return;
-      if (!GS.isConnected()) return;
-      if (S.overlay || S.tab === 'nuevo') return; // no interrumpir una edición en curso
-      if (Date.now() - lastResync < 15000) return;
-      lastResync = Date.now();
-      initFromSheets().then(function (result) {
-        if (result.source === 'sheets') render();
-      });
-    });
-  }
 
   function registerSW() {
     if (!('serviceWorker' in navigator)) return;
@@ -477,8 +451,7 @@
       comprobante:    existing ? existing.comprobante     : 'no_aplica',
     };
 
-    var savedJob = saveJob(job);
-    syncJobToSheet(savedJob);
+    saveJob(job);
     showToast(editId ? 'Trabajo actualizado ✓' : 'Trabajo guardado ✓');
 
     if (editId) {
@@ -748,8 +721,7 @@
 
     on('btn-cancelar-job', function () {
       if (!confirm('¿Cancelar este trabajo?')) return;
-      var savedCan = saveJob(Object.assign({}, j, { estado: 'cancelado' }));
-      syncJobToSheet(savedCan);
+      saveJob(Object.assign({}, j, { estado: 'cancelado' }));
       showToast('Trabajo cancelado');
       S.ovPage = 'view';
       renderOverlay();
@@ -759,7 +731,7 @@
     on('btn-eliminar-job', function () {
       if (!confirm('¿Eliminar este trabajo? No se puede deshacer.')) return;
       deleteJob(j.id);
-      syncDeleteFromSheet(j.id);
+      syncDeleteFromSheet(j);
       showToast('Trabajo eliminado');
       closeOverlay();
       render();
@@ -775,8 +747,7 @@
       var adicionales = parseMoney(document.getElementById('conf-adicionales') ? document.getElementById('conf-adicionales').value : '');
       var costoPeones = parseMoney(document.getElementById('conf-peones') ? document.getElementById('conf-peones').value : '');
       var jobConf = Object.assign({}, j, { unidad: unidad, precioCamioneta: precio, adicionales: adicionales, costoPeones: costoPeones, estado: 'confirmado' });
-      var saved = saveJob(jobConf);
-      syncJobToSheet(saved);
+      saveJob(jobConf);
       showToast('Trabajo confirmado ✓');
       S.ovPage = 'view';
       renderOverlay();
@@ -797,8 +768,7 @@
       var ganancia   = Math.round(Number(gananciaEl ? gananciaEl.value : 0) || 0);
       if (tieneGastos(j.unidad)) saveGastos(j.fecha, j.unidad, gastos);
       var jobReal = Object.assign({}, j, { cobroCamioneta: camioneta, totalCobrado: totalCobrado, gananciaNeta: ganancia, comprobante: comp, costoPeones: peonesReal, adicionales: adicionalesReal, estado: 'realizado' });
-      var savedReal = saveJob(jobReal);
-      syncJobToSheet(savedReal, gastos);
+      saveJob(jobReal);
       showToast('¡Trabajo realizado! ✓');
       S.ovPage = 'view';
       renderOverlay();
@@ -828,8 +798,7 @@
       var sel = document.getElementById('edit-unidad');
       if (!sel || !sel.value) return;
       var jobUpd = Object.assign({}, j, { unidad: sel.value });
-      var saved  = saveJob(jobUpd);
-      syncJobToSheet(saved);
+      saveJob(jobUpd);
       showToast('Unidad actualizada ✓');
       renderOverlay();
       render();
@@ -846,8 +815,7 @@
       var gan    = Math.round(Number(ganEl ? ganEl.value : (j.gananciaNeta || 0)) || 0);
       var total  = cam + peo + add;
       var jobUpd = Object.assign({}, j, { cobroCamioneta: cam, costoPeones: peo, adicionales: add, totalCobrado: total, gananciaNeta: gan });
-      var saved  = saveJob(jobUpd);
-      syncJobToSheet(saved);
+      saveJob(jobUpd);
       showToast('Cobros actualizados ✓');
       renderOverlay();
       render();
@@ -1033,7 +1001,6 @@
                 item.job.id = generateId();
                 item.job.unidad = null;
                 saveJob(item.job);
-                if (GS.isConnected()) syncJobToSheet(item.job);
                 GMAIL.markRead(item.gmailId).catch(function () {});
                 count++;
               });
@@ -1065,8 +1032,7 @@
       if (_isDuplicateJob(job) && !confirm('Ya existe un trabajo con esa fecha, hora y cliente. ¿Importar de todos modos?')) return;
       job.id     = generateId();
       job.unidad = unidad || null;
-      var savedImport = saveJob(job);
-      syncJobToSheet(savedImport);
+      saveJob(job);
       S.fecha = job.fecha;
       closeOverlay();
       navigateTo('agenda');
@@ -1247,7 +1213,8 @@
   // RESUMEN DEL DÍA
   // ════════════════════════════════════════════════════════════════════════
   function buildResumen() {
-    var jobs = getByFecha(S.resumenFecha).filter(function (j) {
+    var allDayJobs = getByFecha(S.resumenFecha);
+    var jobs = allDayJobs.filter(function (j) {
       return j.estado === 'confirmado' || j.estado === 'realizado';
     });
 
@@ -1301,13 +1268,19 @@
         + '</div></div>'
       : '<p class="empty-msg">Sin trabajos confirmados o realizados para este día.</p>';
 
+    var exportBtn = allDayJobs.length
+      ? '<button class="btn-outline btn-tools" id="btn-exportar-dia" style="width:100%;margin-top:12px">'
+        + '⬆ Exportar este día al Sheet (' + allDayJobs.length + ')</button>'
+      : '';
+
     return '<div class="date-nav">'
       + '<button class="btn-nav" id="btn-res-prev">‹</button>'
       + '<div class="date-label"><span class="date-label-main">' + formatFechaLarga(S.resumenFecha) + '</span></div>'
       + '<button class="btn-nav" id="btn-res-next">›</button>'
       + '</div>'
       + '<div class="section-header"><span>Resumen del día</span></div>'
-      + tableHtml;
+      + tableHtml
+      + exportBtn;
   }
 
   function bindResumen(main) {
@@ -1320,6 +1293,33 @@
     if (next) next.addEventListener('click', function () {
       S.resumenFecha = addDays(S.resumenFecha, 1);
       main.innerHTML = buildResumen(); bindResumen(main);
+    });
+
+    var btnExp = document.getElementById('btn-exportar-dia');
+    if (btnExp) btnExp.addEventListener('click', function () {
+      if (!GS.isConnected()) { showToast('Conectate a Google Sheets primero (pestaña Caja)'); return; }
+      var dayJobs = getByFecha(S.resumenFecha);
+      if (!dayJobs.length) { showToast('No hay trabajos este día'); return; }
+
+      btnExp.disabled = true;
+      var done = 0, errors = 0;
+      var chain = Promise.resolve();
+      dayJobs.forEach(function (job, i) {
+        chain = chain.then(function () {
+          btnExp.textContent = 'Exportando ' + (i + 1) + '/' + dayJobs.length + '…';
+          return exportJobToSheet(job).then(function () { done++; }).catch(function (e) {
+            errors++;
+            console.warn('Export failed for', job.id, e.message);
+          });
+        });
+      });
+      chain.then(function () {
+        btnExp.disabled = false;
+        btnExp.textContent = '⬆ Exportar este día al Sheet (' + dayJobs.length + ')';
+        showToast(errors
+          ? (done + ' exportado(s), ' + errors + ' con error')
+          : (done + ' trabajo(s) exportado(s) ✓'));
+      });
     });
   }
 
@@ -1397,7 +1397,7 @@
       + buildGSheetsCard()
       + '<button class="btn-outline btn-tools" id="btn-exportar-backup">⬇ Exportar backup JSON</button>'
       + '<label class="btn-outline btn-tools btn-import-label" id="lbl-importar-backup">'
-      + '⬆ Importar backup al Sheet'
+      + '⬆ Restaurar backup'
       + '<input type="file" id="inp-backup-json" accept=".json" style="display:none">'
       + '</label>'
       + '</div>';
@@ -1480,31 +1480,21 @@
     if (!data.jobs || !Array.isArray(data.jobs) || data.jobs.length === 0) {
       showToast('El archivo no contiene trabajos'); return;
     }
-    if (!GS.isConnected()) {
-      showToast('Conectate a Google Sheets primero'); return;
-    }
 
     var jobs   = data.jobs;
     var gastos = data.gastos || {};
     var total  = jobs.length;
 
-    if (!confirm('Se encontraron ' + total + ' trabajos en el backup.\n¿Subir todos al Google Sheet?\n\nHacé esto una sola vez para no duplicar datos.')) return;
+    if (!confirm('Se encontraron ' + total + ' trabajos en el backup.\n¿Restaurarlos en este dispositivo?\n\nSi ya tenés trabajos con esos mismos ID, se actualizan en vez de duplicarse.')) return;
 
-    showToast('Subiendo ' + total + ' trabajos…');
-
-    var rows = jobs.map(function (job) {
-      var key = (job.fecha || '') + '__' + (job.unidad || '');
-      return GS.jobToRow(job, gastos[key] || 0);
+    jobs.forEach(function (job) { saveJob(job); });
+    Object.keys(gastos).forEach(function (key) {
+      var p = key.split('__');
+      saveGastos(p[0], p[1], gastos[key]);
     });
 
-    GS.batchAppend(rows)
-      .then(function () {
-        showToast('¡' + total + ' trabajos importados al Sheet ✓');
-        // Recargar datos desde el Sheet para actualizar rowMap
-        return initFromSheets();
-      })
-      .then(function () { render(); })
-      .catch(function (e) { showToast('Error al importar: ' + e.message); });
+    render();
+    showToast(total + ' trabajo(s) restaurado(s) ✓ — usá "Exportar" en cada día si querés subirlos al Sheet');
   }
 
   function exportBackup() {

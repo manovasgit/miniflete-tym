@@ -105,203 +105,46 @@ function saveGastos(fechaStr, unidadId, amount) {
 
 function getAllGastos() { _ensureLoaded(); return Object.assign({}, _gastos); }
 
-// Borra filas duplicadas del Sheet de abajo hacia arriba (mayor row primero),
-// ajustando _rowMap después de cada borrado para no desalinear las filas que quedan.
-function _cleanupDuplicateRows(dupRows) {
-  var sorted = dupRows.slice().sort(function (a, b) { return b - a; });
-  var chain = Promise.resolve();
-  sorted.forEach(function (rowNum) {
-    chain = chain.then(function () {
-      return GS.deleteJob(rowNum).then(function () {
-        Object.keys(_rowMap).forEach(function (id) {
-          if (_rowMap[id] > rowNum) _rowMap[id]--;
-        });
-        _saveRowMap();
-      });
-    }).catch(function (e) {
-      console.warn('No se pudo borrar fila duplicada', rowNum, e.message);
-    });
-  });
-  return chain;
-}
-
-// ── Google Sheets: carga inicial ──────────────────────────────────────────
-// Lee todos los trabajos del Sheet y los fusiona con el caché local.
-// Retorna Promise<{ source, count? }>
-function initFromSheets() {
+// ── Google Sheets: exportación manual (bajo demanda, un trabajo a la vez) ──
+// No hay sync automático: la app nunca sube ni trae nada del Sheet por sí sola.
+// _rowMap guarda, por job id, en qué hoja (mes) y en qué fila quedó exportado,
+// para que exportar el mismo día dos veces actualice en vez de duplicar.
+// { [jobId]: { sheet: 'Julio 2026', row: 15 } }
+function exportJobToSheet(job) {
   if (typeof GS === 'undefined' || !GS.isConnected()) {
-    return Promise.resolve({ source: 'local' });
+    return Promise.reject(new Error('Conectate a Google Sheets primero'));
   }
-
-  return GS.readAll().then(function (data) {
-    var rows = (data.values || []).slice(1); // omitir fila de cabecera
-    var raw = []; // { id, row, job } de cada fila válida del Sheet
-
-    rows.forEach(function (row, i) {
-      // Nuevo formato: ID en columna Y (índice 24), JSON en Z (índice 25)
-      // Formato viejo: ID en columna A (índice 0), JSON en O (índice 14)
-      var id = row[24] || (String(row[0] || '').startsWith('job_') ? row[0] : null);
-      if (!id) return;
-
-      var job = null;
-      if (row[25]) { try { job = JSON.parse(row[25]); } catch (e) {} }
-      if (!job && row[14]) { try { job = JSON.parse(row[14]); } catch (e) {} }
-      if (!job) job = _rowToJob(row);
-      job.id = id; // forzar coincidencia con la columna: si el id interno del JSON
-                   // no coincide, syncJobToSheet no encuentra la fila y termina
-                   // agregando una fila duplicada en vez de actualizarla
-      raw.push({ id: id, row: i + 2, job: job });
-    });
-
-    // Deduplicar por id: puede haber más de una fila con el mismo id (residuo
-    // de un bug de sync viejo que a veces agregaba una fila en vez de actualizar
-    // la existente). Nos quedamos con la más reciente (actualizadoEn) y borramos
-    // físicamente las demás filas del Sheet para que no vuelvan a aparecer.
-    _rowMap = {};
-    var byId = {};
-    var dupRows = [];
-    raw.forEach(function (r) {
-      var prev = byId[r.id];
-      if (!prev) { byId[r.id] = r; return; }
-      var keepNew = (r.job.actualizadoEn || 0) >= (prev.job.actualizadoEn || 0);
-      dupRows.push(keepNew ? prev.row : r.row);
-      if (keepNew) byId[r.id] = r;
-    });
-
-    var sheetJobs = [];
-    Object.keys(byId).forEach(function (id) {
-      _rowMap[id] = byId[id].row;
-      sheetJobs.push(byId[id].job);
-    });
-
-    if (dupRows.length) _cleanupDuplicateRows(dupRows);
-
-    _ensureLoaded();
-
-    // Merge: si hay versión local más nueva que el Sheet (por actualizadoEn), usarla.
-    // Esto evita que un cambio local (ej: editar camioneta) se pise al recargar la app
-    // cuando el Sheet todavía no recibió la actualización (fallo de red, sync parcial).
-    var localMap = {};
-    (_jobs || []).forEach(function (j) { if (j.id) localMap[j.id] = j; });
-
-    var merged = sheetJobs.map(function (sheetJob) {
-      var localJob = localMap[sheetJob.id];
-      if (localJob && (localJob.actualizadoEn || 0) > (sheetJob.actualizadoEn || 0)) {
-        syncJobToSheet(localJob); // reintentar subir el cambio que no había llegado al Sheet
-        return localJob; // versión local más nueva → la preservamos
-      }
-      return sheetJob;
-    });
-
-    // Trabajos que solo existen en local (todavía no sincronizados al Sheet, ej: sin red al crearlos)
-    var sheetIds = {};
-    sheetJobs.forEach(function (j) { sheetIds[j.id] = true; });
-    var localOnly = (_jobs || []).filter(function (j) { return !sheetIds[j.id]; });
-    localOnly.forEach(function (j) { syncJobToSheet(j); }); // reintentar subirlos al Sheet
-
-    _jobs = merged.concat(localOnly);
-    _saveJobsLocal();
-    _saveRowMap();  // persistir el mapa para evitar duplicados en próxima sesión
-
-    return { source: 'sheets', count: sheetJobs.length };
-  }).catch(function (e) {
-    console.warn('Sheet load failed, usando localStorage:', e.message);
-    return { source: 'local', error: e.message };
-  });
-}
-
-// Reconstruye un job desde las columnas del sheet (nuevo formato A-Z)
-function _rowToJob(row) {
-  var unidadId = null;
-  if (typeof UNIDADES !== 'undefined') {
-    for (var k = 0; k < UNIDADES.length; k++) {
-      if (UNIDADES[k].nombre === row[14]) { unidadId = UNIDADES[k].id; break; } // O: Unidad
-    }
-  }
-  // Fecha: D/M/YYYY → YYYY-MM-DD
-  var fechaStr = row[0] || '';
-  if (fechaStr && fechaStr.indexOf('/') >= 0) {
-    var fp = fechaStr.split('/');
-    if (fp.length === 3) fechaStr = fp[2] + '-' + fp[1].padStart(2,'0') + '-' + fp[0].padStart(2,'0');
-  }
-  // Peones: etiqueta → clave
-  var pLbl = (row[13] || '').toLowerCase();
-  var peones = pLbl.indexOf('escalera') >= 0 ? 'escaleras'
-             : pLbl.indexOf('ascensor') >= 0 ? 'ascensor'
-             : pLbl.indexOf('no') >= 0        ? 'no_se'
-             : 'sin_peones';
-  return {
-    id:              row[24]          || generateId(),   // Y
-    fecha:           fechaStr,
-    hora:            row[1]           || '09:00',        // B
-    estado:          row[2]           || 'nuevo',        // C
-    nombre:          row[3]           || '',             // D
-    telefonoRetiro:  row[4]           || '',             // E
-    telefonoEntrega: row[5]           || '',             // F
-    inventario:      row[6]           || '',             // G
-    calleRetiro:     row[7]           || '',             // H
-    pisoRetiro:      row[8]           || '',             // I
-    barrioRetiro:    row[9]           || '',             // J
-    calleEntrega:    row[10]          || '',             // K
-    pisoEntrega:     row[11]          || '',             // L
-    barrioEntrega:   row[12]          || '',             // M
-    peones:          peones,                             // N
-    unidad:          unidadId,                           // O
-    canal:           row[15]          || 'web',          // P
-    formaPago:       /transfer/i.test(row[16] || '') ? 'transferencia' : 'efectivo', // Q
-    viajaEnUnidad:   /^s[ií]/i.test(row[17] || '') ? 'si' : (/movilidad/i.test(row[17] || '') ? 'movilidad' : 'no'), // R
-    precioCamioneta: Number(row[18])  || 0,             // S
-    adicionales:     Number(row[19])  || 0,             // T
-    costoPeones:     Number(row[20])  || 0,             // U
-    totalCobrado:    Number(row[21])  || 0,             // V
-    gananciaNeta:    Number(row[22])  || 0,             // W
-    aclaraciones:    row[23]          || '',             // X
-    cobroCamioneta:  0, comprobante: 'no_aplica', creadoEn: Date.now(), actualizadoEn: Date.now(),
-  };
-}
-
-// ── Google Sheets: sync de escritura ─────────────────────────────────────
-// Llama fire-and-forget desde app.js (no bloquea la UI)
-function syncJobToSheet(job, gastosOverride) {
-  if (typeof GS === 'undefined' || !GS.isConnected()) return Promise.resolve();
   _ensureLoaded();
-  var gastos = (gastosOverride !== undefined)
-    ? gastosOverride
-    : getGastos(job.fecha, job.unidad);
+  var gastos    = getGastos(job.fecha, job.unidad);
+  var sheetName = GS.monthSheetName(job.fecha);
+  var entry     = _rowMap[job.id];
 
-  if (_rowMap[job.id]) {
-    return GS.updateJob(_rowMap[job.id], job, gastos).catch(function (e) {
-      console.warn('Sheet update failed:', e.message);
-    });
+  if (entry && entry.sheet === sheetName) {
+    return GS.updateJob(entry.row, job, gastos, sheetName);
   }
 
-  return GS.appendJob(job, gastos).then(function (resp) {
+  return GS.appendJob(job, gastos, sheetName).then(function (resp) {
     if (resp && resp.updates && resp.updates.updatedRange) {
       var m = resp.updates.updatedRange.match(/(\d+)$/);
-      if (m) { _rowMap[job.id] = Number(m[1]); _saveRowMap(); }
+      if (m) { _rowMap[job.id] = { sheet: sheetName, row: Number(m[1]) }; _saveRowMap(); }
     }
-  }).catch(function (e) {
-    console.warn('Sheet append failed:', e.message);
   });
 }
 
-// Elimina la fila del job en el Sheet
-function syncDeleteFromSheet(id) {
+// Elimina la fila del job en el Sheet, si fue exportado antes (localmente o
+// en otro dispositivo, en cuyo caso se busca en la hoja del mes de esa fecha).
+function syncDeleteFromSheet(job) {
   if (typeof GS === 'undefined' || !GS.isConnected()) return Promise.resolve();
 
-  var rowNum = _rowMap[id];
-  delete _rowMap[id];
+  var entry = _rowMap[job.id];
+  delete _rowMap[job.id];
   _saveRowMap();
 
-  if (rowNum) {
-    return GS.deleteJob(rowNum).catch(function (e) {
-      console.warn('Sheet delete failed:', e.message);
-    });
-  }
+  var sheetName = (entry && entry.sheet) || GS.monthSheetName(job.fecha);
+  var lookup = entry ? Promise.resolve(entry.row) : GS.findRowByJobId(job.id, sheetName);
 
-  // Si no está en el mapa local, buscar en el Sheet
-  return GS.findRowByJobId(id).then(function (found) {
-    if (found) return GS.deleteJob(found);
+  return lookup.then(function (row) {
+    if (row) return GS.deleteJob(row, sheetName);
   }).catch(function (e) {
     console.warn('Sheet delete failed:', e.message);
   });
