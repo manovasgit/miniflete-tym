@@ -917,6 +917,16 @@
   // ════════════════════════════════════════════════════════════════════════
   // IMPORTAR DESDE EMAIL
   // ════════════════════════════════════════════════════════════════════════
+  // Evita duplicados: mismo trabajo ya importado (fecha + hora + cliente)
+  function _isDuplicateJob(job) {
+    var nombre = (job.nombre || '').trim().toLowerCase();
+    return getAll().some(function (j) {
+      return j.fecha === job.fecha
+        && j.hora === job.hora
+        && (j.nombre || '').trim().toLowerCase() === nombre;
+    });
+  }
+
   function buildImportar() {
     var unidadOpts = '<option value="">— Sin asignar —</option>'
       + UNIDADES.map(function (u) {
@@ -991,10 +1001,16 @@
             // Handler importar todos los seleccionados
             document.getElementById('btn-gmail-import-all').addEventListener('click', function () {
               var checks = resultsDiv.querySelectorAll('.gmail-check:checked');
-              var count = 0;
+              var count = 0, dup = 0;
               checks.forEach(function (cb) {
                 var idx = Number(cb.dataset.idx);
                 var item = parsed[idx];
+                if (_isDuplicateJob(item.job)) {
+                  // ya se había importado antes (el mail no se marcó leído a tiempo)
+                  GMAIL.markRead(item.gmailId).catch(function () {});
+                  dup++;
+                  return;
+                }
                 item.job.id = generateId();
                 item.job.unidad = null;
                 saveJob(item.job);
@@ -1005,7 +1021,7 @@
               resultsDiv.innerHTML = '';
               closeOverlay();
               render();
-              showToast(count + ' trabajo(s) importado(s) ✓');
+              showToast(count + ' trabajo(s) importado(s)' + (dup ? ', ' + dup + ' ya existían ✓' : ' ✓'));
             });
           })
           .catch(function (err) {
@@ -1027,6 +1043,7 @@
       var job = parseEmailForminator(text);
       if (!job) { showToast('No se pudo leer el email. Verificá el formato.'); return; }
       if (!job.nombre) { showToast('No se encontró el nombre del cliente'); return; }
+      if (_isDuplicateJob(job) && !confirm('Ya existe un trabajo con esa fecha, hora y cliente. ¿Importar de todos modos?')) return;
       job.id     = generateId();
       job.unidad = unidad || null;
       var savedImport = saveJob(job);
