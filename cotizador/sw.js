@@ -1,6 +1,6 @@
 // Cotizador TyM — service worker
 // Bumpear la versión ante CUALQUIER cambio en index.html (el CSS y el JS van inline).
-const CACHE = 'mtym-cotizador-v3';
+const CACHE = 'mtym-cotizador-v4';
 const PREFIJO = 'mtym-cotizador-';
 const ASSETS = [
   './',
@@ -43,19 +43,23 @@ self.addEventListener('fetch', e => {
   if (url.origin !== self.location.origin) return;
   if (!url.pathname.includes('/cotizador/')) return;
 
-  if (e.request.mode === 'navigate') e.waitUntil(reponerFaltantes());
+  const esNav = e.request.mode === 'navigate';
+  if (esNav) e.waitUntil(reponerFaltantes());
 
+  // El lector de chats abre la app con ?parametros, que no coinciden con nada
+  // cacheado: para navegaciones se ignora la query y se sirve la pagina igual.
   e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request).then(res => {
+    caches.match(e.request, esNav ? { ignoreSearch: true } : undefined).then(r => r || fetch(e.request).then(res => {
       // Se guarda lo que baja de la red: si alguien vacia la cache, se repuebla
-      // sola sin esperar a que cambie la version del SW.
-      if (res && res.ok && res.type === 'basic') {
+      // sola sin esperar a que cambie la version del SW. Las navegaciones con
+      // query no se guardan: cada link seria una entrada nueva para siempre.
+      if (res && res.ok && res.type === 'basic' && !(esNav && url.search)) {
         const copia = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copia));
       }
       return res;
     }).catch(() => {
-      if (e.request.mode === 'navigate') return caches.match('./index.html');
+      if (esNav) return caches.match('./index.html');
     }))
   );
 });

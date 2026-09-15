@@ -70,6 +70,8 @@
   #editBar{background:#fff4d6;border:1px solid #e8c877;color:#7a5a00}
   #avisoTarifa{background:#fdecea;border:1px solid #f0b4ae;color:var(--rojo)}
   #avisoTarifa ul{margin:6px 0 0;padding-left:18px}
+  #avisoChat{background:#e7f7ec;border:1px solid #a8d8b2;color:#1d6b2f}
+  #pegarTxt{min-height:70px;font-size:13px;margin-top:8px}
 
   /* Lista de presupuestos guardados */
   #secLista summary{font-size:15px;font-weight:700}
@@ -107,6 +109,7 @@
   <button type="button" id="editSalir">Empezar uno nuevo</button>
 </div>
 <div id="avisoTarifa" class="barra oculto"></div>
+<div id="avisoChat" class="barra oculto">Datos cargados desde el chat. Revisalos antes de mandar el presupuesto.</div>
 
 <div class="modo">
   <button type="button" id="mTiempo" aria-pressed="true">Por tiempo<small>mudanzas</small></button>
@@ -115,6 +118,12 @@
 
 <section>
   <h2>Servicio</h2>
+  <details id="pegarZona">
+    <summary>Pegar link del lector de chats</summary>
+    <p class="detalle" style="margin:8px 0 0">Si el link no abrió la app, pegalo acá.</p>
+    <textarea id="pegarTxt" placeholder="Pegá acá el link"></textarea>
+    <button type="button" id="pegarBtn" style="height:40px;border:1px solid var(--linea);background:#fff;border-radius:8px;font:inherit;padding:0 14px;margin-top:8px">Cargar</button>
+  </details>
   <div class="fila">
     <div><label for="cliente">Cliente</label><input id="cliente" placeholder="Nombre de referencia"></div>
     <div><label for="telefono">Teléfono</label><input id="telefono" type="tel" inputmode="tel" placeholder="11 4567-8901"></div>
@@ -592,6 +601,90 @@
     avisoBoton(this,'Guardado');
   };
 
+  /* ---------- precarga desde los parámetros del link ---------- */
+  // Los links los arma el lector de chats. Todo lo que entra por acá es dato, no
+  // orden: cada valor se valida y el que no pasa se ignora, dejando el campo como
+  // estaba. Los precios no se tocan nunca: salen de la tarifa guardada.
+  const ESCALERAS=['no','origen','destino','ambos'];
+  const DIAS_SEM=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+
+  // La fecha viaja en AAAA-MM-DD, pero el campo es texto libre y va tal cual al
+  // mensaje del cliente: se pasa al formato que usa el resto de la app.
+  function fechaLegible(s){
+    const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if(!m) return '';
+    const a=+m[1], me=+m[2], d=+m[3];
+    const f=new Date(a,me-1,d);
+    if(f.getFullYear()!==a||f.getMonth()!==me-1||f.getDate()!==d) return '';
+    return DIAS_SEM[f.getDay()]+' '+d+'/'+me;
+  }
+
+  function disparar(id){
+    const el=$(id);
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+    el.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+
+  function precargarDesde(src,desdeUrl){
+    if(!src) return false;
+    let p;
+    try{ p=new URLSearchParams(src); }catch(e){ return false; }
+    const txt=k=>{ const v=p.get(k); return v==null?'':String(v).trim(); };
+    let hubo=false;
+    const poner=(id,v)=>{ if(!v) return; $(id).value=v; disparar(id); hubo=true; };
+
+    poner('cliente',txt('cliente'));
+    poner('telefono',txt('telefono'));
+    poner('desc',txt('traslada'));
+    poner('origen',txt('origen'));
+    poner('destino',txt('destino'));
+    poner('fecha',fechaLegible(txt('fecha')));
+
+    const pe=txt('peones');
+    if(/^\d+$/.test(pe)&&+pe>=1&&+pe<=10){ $('tPeones').value=+pe; disparar('tPeones'); hubo=true; }
+
+    const es=txt('escalera');
+    if(ESCALERAS.indexOf(es)>=0){ $('escalera').value=es; disparar('escalera'); hubo=true; }
+
+    const fi=txt('film');
+    if(fi==='1'||fi==='0'){ $('lnFilm').checked=(fi==='1'); disparar('lnFilm'); hubo=true; }
+
+    const mo=txt('modo');
+    if(mo==='tiempo'||mo==='cerrado'){ setModo(mo); hubo=true; }
+
+    if(!hubo) return false;
+    calcular();
+    const box=$('avisoChat');
+    box.classList.remove('oculto');
+    clearTimeout(box.tempo);
+    box.tempo=setTimeout(()=>box.classList.add('oculto'),6000);
+    // Se limpia la URL para que una recarga no vuelva a pisar lo que se editó.
+    if(desdeUrl){ try{ history.replaceState(null,'',location.pathname); }catch(e){} }
+    window.scrollTo({top:0});
+    return true;
+  }
+
+  // Acepta ?clave=valor y #clave=valor. El fragmento no viaja al servidor: si el
+  // lector pasa a usarlo, los datos del cliente dejan de quedar en los logs.
+  function precargarDeUrl(){
+    const q=location.search.length>1?location.search.slice(1):'';
+    precargarDesde(q||location.hash.slice(1),true);
+  }
+  // Con la app ya abierta, tocar un link con # solo cambia el hash y no recarga.
+  window.addEventListener('hashchange',precargarDeUrl);
+
+  $('pegarBtn').onclick=function(){
+    const s=$('pegarTxt').value.trim();
+    const i=Math.min.apply(null,[s.indexOf('?'),s.indexOf('#')].filter(n=>n>=0).concat([Infinity]));
+    if(!precargarDesde(i===Infinity?s:s.slice(i+1),false)){
+      this.textContent='No se entendió';
+      setTimeout(()=>{ this.textContent='Cargar'; },1800);
+      return;
+    }
+    $('pegarTxt').value='';
+    $('pegarZona').open=false;
+  };
+
   /* ---------- acciones fijas ---------- */
   $('mTiempo').onclick=()=>setModo('tiempo');
   $('mCerrado').onclick=()=>setModo('cerrado');
@@ -618,6 +711,7 @@
   pintarLista();
   pintarEdicion();
   calcular();
+  precargarDeUrl();   // último: las tarifas guardadas ya están cargadas y no se pisan
 })();
 </script>
 </body>
