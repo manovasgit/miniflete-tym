@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#8b0000">
+<meta name="description" content="Cotizador interno de presupuestos – Miniflete TyM">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cotizador">
+<title>Cotizador — Miniflete TyM</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+  :root{
+    --rojo:#8b0000; --rojo2:#c0392b; --negro:#1a1a1a; --gris:#6b6b6b;
+    --linea:#e6e2e2; --fondo:#f7f5f5; --blanco:#fff; --wa:#128c7e;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--fondo);color:var(--negro);
+    font:16px/1.45 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{background:linear-gradient(135deg,var(--rojo),var(--rojo2));color:#fff;padding:18px 20px 14px}
+  header h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.2px}
+  header p{margin:2px 0 0;font-size:13px;opacity:.85}
+  main{max-width:560px;margin:0 auto;padding:16px 16px 120px}
+  section{background:var(--blanco);border:1px solid var(--linea);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+  h2{font-size:15px;margin:0 0 10px;color:var(--rojo)}
+  label{display:block;font-size:13px;color:var(--gris);margin:10px 0 4px}
+  input,select,textarea{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--linea);
+    border-radius:8px;background:#fff;color:var(--negro)}
+  textarea{min-height:64px;resize:vertical}
+  input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--rojo2);outline-offset:1px}
+  .fila{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .fila3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+  .modo{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--rojo);border-radius:9px;overflow:hidden;margin-bottom:14px}
+  .modo button{font:inherit;font-weight:700;height:52px;border:0;background:#fff;color:var(--rojo);line-height:1.15}
+  .modo button small{display:block;font-size:11px;font-weight:400;opacity:.75}
+  .modo button[aria-pressed="true"]{background:var(--rojo);color:#fff}
+
+  .tiempo{display:grid;grid-template-columns:52px 1fr 52px;gap:8px;align-items:center}
+  .tiempo button{height:44px;font-size:22px;border:1px solid var(--linea);background:#fff;border-radius:8px;color:var(--rojo)}
+  .tiempo output{display:block;text-align:center;font-size:22px;font-weight:700}
+  .tiempo small{display:block;font-size:12px;color:var(--gris);font-weight:400}
+  .cerrado input{font-size:26px;font-weight:700;text-align:center;padding:14px}
+
+  .lineas div{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--linea)}
+  .lineas div:last-child{border-bottom:0}
+  .lineas input[type=checkbox]{width:20px;height:20px;flex:0 0 20px;accent-color:var(--rojo)}
+  .lineas label{margin:0;font-size:14px;color:var(--negro)}
+  details summary{cursor:pointer;font-size:14px;color:var(--rojo);list-style:none}
+  details summary::before{content:"▸ "}details[open] summary::before{content:"▾ "}
+  details ul{margin:8px 0 0;padding-left:18px;font-size:14px;color:var(--gris)}
+  .total{display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid var(--rojo);padding-top:12px;margin-top:12px}
+  .total span{font-size:14px;color:var(--gris)}
+  .total strong{font-size:30px;color:var(--rojo)}
+  .detalle{font-size:13px;color:var(--gris);margin:4px 0 0}
+  .msg{white-space:pre-wrap;font-size:14px;background:#e7ffdb;border-radius:12px 12px 12px 2px;padding:12px 14px;margin-top:10px;border:1px solid #cdeec0}
+  .acciones{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--linea);
+    padding:10px 16px calc(10px + env(safe-area-inset-bottom));display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .acciones button{height:48px;font:inherit;font-weight:700;border:0;border-radius:8px;color:#fff}
+  #copiar{background:var(--negro)}#enviar{background:var(--wa)}
+  #copiar.ok{background:#2d7a2d}
+  .oculto{display:none}
+  @media (prefers-reduced-motion:no-preference){#copiar,.modo button{transition:background .15s}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Cotizador Miniflete TyM</h1>
+  <p>Uso interno · calcula y arma el mensaje de presupuesto</p>
+</header>
+<main>
+
+<div class="modo">
+  <button type="button" id="mTiempo" aria-pressed="true">Por tiempo<small>mudanzas</small></button>
+  <button type="button" id="mCerrado" aria-pressed="false">Precio cerrado<small>fletes puntuales</small></button>
+</div>
+
+<section>
+  <h2>Servicio</h2>
+  <label for="desc">Qué se traslada</label>
+  <textarea id="desc" placeholder="Ej.: sillón 3 cuerpos, mesa ratona y 6 cajas"></textarea>
+  <div class="fila">
+    <div><label for="origen">Origen</label><input id="origen" placeholder="Flores"></div>
+    <div><label for="destino">Destino</label><input id="destino" placeholder="Ramos Mejía"></div>
+  </div>
+  <div class="fila">
+    <div><label for="fecha">Fecha</label><input id="fecha" placeholder="sábado 20/9"></div>
+    <div><label for="tPeones">Peones</label><input id="tPeones" type="number" value="2"></div>
+  </div>
+</section>
+
+<!-- MODO POR TIEMPO -->
+<div id="bloqueTiempo">
+  <section>
+    <h2>Valores</h2>
+    <div class="fila3">
+      <div><label for="tBase">Servicio inicial $</label><input id="tBase" type="number" inputmode="numeric" value="180000"></div>
+      <div><label for="tMedia">Media hora extra $</label><input id="tMedia" type="number" inputmode="numeric" value="60000"></div>
+      <div><label for="tHoras">Horas incluidas</label><input id="tHoras" type="number" step="0.5" value="1.5"></div>
+    </div>
+    <div class="fila">
+      <div><label for="tEsc">Escalera $</label><input id="tEsc" type="number" inputmode="numeric" value="30000"></div>
+      <div><label for="escalera">Escalera</label>
+        <select id="escalera">
+          <option value="no">No</option>
+          <option value="origen">En origen</option>
+          <option value="destino">En destino</option>
+          <option value="ambos">En ambos</option>
+        </select></div>
+    </div>
+    <details style="margin-top:12px">
+      <summary>Guardar estos valores como tarifa</summary>
+      <p class="detalle" style="margin:8px 0">Se usan solo en este presupuesto hasta que los guardes como punto de partida.</p>
+      <button type="button" id="guardar" style="height:40px;border:1px solid var(--linea);background:#fff;border-radius:8px;font:inherit;padding:0 14px">Guardar como tarifa</button>
+    </details>
+  </section>
+
+  <section>
+    <h2>Tiempo estimado</h2>
+    <div class="tiempo">
+      <button type="button" id="menos" aria-label="Media hora menos">−</button>
+      <output id="horasOut">1,5 h<small>tiempo inicial incluido</small></output>
+      <button type="button" id="mas" aria-label="Media hora más">+</button>
+    </div>
+    <details style="margin-top:10px">
+      <summary>Guía para estimar</summary>
+      <ul>
+        <li>1,5 h: monoambiente o pocos muebles, todo por ascensor, recorrido corto.</li>
+        <li>+0,5 h por cada ambiente adicional.</li>
+        <li>+0,5 h por cada 2 pisos por escalera.</li>
+        <li>+0,5 h si hay más de 20 cajas o bolsas.</li>
+        <li>+0,5 h si el recorrido supera los 15 km.</li>
+        <li>+0,5 h por armado o desarmado de muebles.</li>
+      </ul>
+    </details>
+  </section>
+</div>
+
+<!-- MODO PRECIO CERRADO -->
+<div id="bloqueCerrado" class="oculto">
+  <section class="cerrado">
+    <h2>Precio del trabajo</h2>
+    <input id="precioCerrado" type="number" inputmode="numeric" placeholder="0">
+    <p class="detalle">Valor cerrado por el trabajo completo, sin cómputo de horas.</p>
+    <label for="cEspera">Si el cliente hace esperar, avisar recargo</label>
+    <select id="cEspera">
+      <option value="no">No aclarar nada</option>
+      <option value="si">Aclarar que la espera se cobra aparte</option>
+    </select>
+  </section>
+</div>
+
+<section>
+  <h2>Líneas del mensaje</h2>
+  <div class="lineas">
+    <div><input type="checkbox" id="lnPeones" checked><label for="lnPeones">Peones incluidos</label></div>
+    <div><input type="checkbox" id="lnEsc" checked><label for="lnEsc">Trabajo por escalera</label></div>
+    <div><input type="checkbox" id="lnMantas" checked><label for="lnMantas">Mantas y lonas</label></div>
+    <div><input type="checkbox" id="lnFilm" checked><label for="lnFilm">Embalaje con film</label></div>
+  </div>
+</section>
+
+<section>
+  <h2>Presupuesto</h2>
+  <p class="detalle" id="detalle"></p>
+  <div class="total"><span id="totalLabel">Valor estimado</span><strong id="total">$0</strong></div>
+  <div class="msg" id="msg"></div>
+</section>
+
+</main>
+<div class="acciones">
+  <button type="button" id="copiar">Copiar mensaje</button>
+  <button type="button" id="enviar">Enviar por WhatsApp</button>
+</div>
+
+<script>
+  // Se registra solo en su propio scope: no desregistra ni toca el SW de /unidades/.
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(function(){});
+  }
+</script>
+
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  const tarifaIds=['tBase','tMedia','tEsc','tHoras','tPeones'];
+  let horas=1.5, modo='tiempo';
+
+  try{
+    const g=JSON.parse(localStorage.getItem('tym_tarifas')||'{}');
+    tarifaIds.forEach(id=>{ if(g[id]!=null) $(id).value=g[id]; });
+    if(g.tHoras!=null) horas=+g.tHoras;
+  }catch(e){}
+
+  $('guardar').onclick=function(){
+    try{
+      const o={}; tarifaIds.forEach(id=>o[id]=$(id).value);
+      localStorage.setItem('tym_tarifas',JSON.stringify(o));
+      this.textContent='Guardado';
+      setTimeout(()=>{this.textContent='Guardar como tarifa';},1500);
+    }catch(e){ this.textContent='No se pudo guardar'; }
+  };
+
+  const peso=n=>'$'+Math.round(n).toLocaleString('es-AR');
+  const fmtH=h=>{
+    if(h===0.5) return 'media hora';
+    const e=Math.floor(h), m=h%1?' y media':'';
+    return e+(e===1?' hora':' horas')+m;
+  };
+
+  function setModo(m){
+    modo=m;
+    $('mTiempo').setAttribute('aria-pressed',m==='tiempo');
+    $('mCerrado').setAttribute('aria-pressed',m==='cerrado');
+    $('bloqueTiempo').classList.toggle('oculto',m!=='tiempo');
+    $('bloqueCerrado').classList.toggle('oculto',m==='tiempo');
+    $('totalLabel').textContent=m==='tiempo'?'Valor estimado':'Valor del trabajo';
+    calcular();
+  }
+
+  function encabezado(){
+    const desc=$('desc').value.trim(), o=$('origen').value.trim(),
+          d=$('destino').value.trim(), f=$('fecha').value.trim();
+    let m='🚚 *Presupuesto Miniflete TyM*\n';
+    if(desc) m+='Servicio: '+desc+'\n';
+    if(o||d) m+='Recorrido: '+(o||'—')+' → '+(d||'—')+'\n';
+    if(f) m+='Fecha: '+f+'\n';
+    return m;
+  }
+
+  function calcular(){
+    const peones=+$('tPeones').value||0;
+    const conPeones=$('lnPeones').checked&&peones>0;
+    const txtPeones=peones+(peones===1?' peón':' peones');
+    let total, m;
+
+    if(modo==='tiempo'){
+      const base=+$('tBase').value||0, media=+$('tMedia').value||0, esc=+$('tEsc').value||0;
+      const hInc=+$('tHoras').value||1.5;
+      if(horas<hInc) horas=hInc;
+      const escalera=$('escalera').value;
+      const medias=Math.max(0,Math.round((horas-hInc)/0.5));
+      const adEsc=(escalera==='no'||!$('lnEsc').checked)?0:esc;
+      total=base+medias*media+adEsc;
+
+      $('horasOut').innerHTML=String(horas).replace('.',',')+' h<small>'+
+        (medias?medias+' × media hora extra':'tiempo inicial incluido')+'</small>';
+      $('detalle').textContent='Inicial '+peso(base)+(medias?' + '+medias+' × '+peso(media):'')+(adEsc?' + escalera '+peso(adEsc):'');
+
+      const dondeEsc={origen:'en origen',destino:'en destino',ambos:'en origen y destino'}[escalera];
+      m=encabezado();
+      m+='\nTomando como referencia el servicio informado:\n';
+      m+='• Servicio inicial: '+peso(base)+', hasta '+fmtH(hInc)+' de trabajo'+
+        (conPeones?', con traslado y '+txtPeones+' para la carga y descarga':', con el traslado incluido')+'.\n';
+      if($('lnEsc').checked){
+        m+=escalera==='no'
+          ?'• Trabajo por escalera: en caso de requerirse, tiene un adicional que se evalúa según el piso y la cantidad de bultos.\n'
+          :'• Trabajo por escalera '+dondeEsc+': adicional de '+peso(esc)+'.\n';
+      }
+      m+='• Tiempo excedente: superado el tiempo inicial, se adicionan '+peso(media)+' por cada media hora.\n';
+      if($('lnMantas').checked) m+='• Los muebles se protegen con mantas y lonas durante el traslado.\n';
+      if($('lnFilm').checked) m+='• Embalaje con film stretch: se cotiza por separado.\n';
+      m+='\nTiempo estimado: aprox. '+fmtH(horas)+'.\n';
+      m+='*Valor estimado del servicio: '+peso(total)+'*\n\n';
+      m+='El importe y el tiempo son estimativos, calculados según los muebles, bultos y cajas informados. La duración real puede variar por cantidad de elementos, accesos, ascensor, esperas o armado y desarmado de muebles. El importe final se define por el tiempo efectivo de trabajo y los adicionales que correspondan.\n\n';
+    } else {
+      total=+$('precioCerrado').value||0;
+      $('detalle').textContent='Precio cerrado por el trabajo';
+      m=encabezado();
+      m+='\n*Valor del servicio: '+peso(total)+'*\n\n';
+      m+='El valor incluye:\n';
+      m+=conPeones
+        ?'• El traslado y '+txtPeones+' para la carga y descarga.\n'
+        :'• El traslado de los elementos informados.\n';
+      if($('lnMantas').checked) m+='• Protección de los muebles con mantas y lonas.\n';
+      if($('lnEsc').checked) m+='• Si hay que subir o bajar por escalera y no fue informado, se cotiza un adicional.\n';
+      if($('lnFilm').checked) m+='• Embalaje con film stretch: se cotiza por separado.\n';
+      if($('cEspera').value==='si') m+='• Las esperas en el domicilio se cobran aparte.\n';
+      m+='\nEs un precio cerrado por el trabajo descripto. Si al momento del servicio cambia la cantidad de elementos o las condiciones de acceso, actualizamos el presupuesto antes de empezar.\n\n';
+    }
+
+    $('total').textContent=peso(total);
+    m+='¿Te reservamos la fecha?';
+    $('msg').textContent=m;
+    return m;
+  }
+
+  $('mTiempo').onclick=()=>setModo('tiempo');
+  $('mCerrado').onclick=()=>setModo('cerrado');
+  $('mas').onclick=()=>{horas+=0.5;calcular();};
+  $('menos').onclick=()=>{horas-=0.5;calcular();};
+  document.querySelectorAll('input,select,textarea').forEach(el=>{
+    el.addEventListener('input',calcular);
+    el.addEventListener('change',calcular);
+  });
+
+  $('copiar').onclick=async function(){
+    const m=calcular();
+    try{ await navigator.clipboard.writeText(m); }
+    catch(e){ const t=document.createElement('textarea');t.value=m;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove(); }
+    this.textContent='Copiado';this.classList.add('ok');
+    setTimeout(()=>{this.textContent='Copiar mensaje';this.classList.remove('ok');},1500);
+  };
+  $('enviar').onclick=()=>{ window.open('https://wa.me/?text='+encodeURIComponent(calcular()),'_blank'); };
+
+  calcular();
+})();
+</script>
+</body>
+</html>
