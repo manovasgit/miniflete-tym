@@ -178,7 +178,22 @@
 <script>
   // Se registra solo en su propio scope: no desregistra ni toca el SW de /unidades/.
   if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(function(){});
+    var miScope=new URL('./',window.location.href).href;
+    navigator.serviceWorker.getRegistrations().then(function(regs){
+      regs.forEach(function(reg){
+        // Solo el SW de la app vieja de propuestas, que tiene scope mas amplio
+        // y se mete en el nuestro. Las apps hermanas no se tocan.
+        if(miScope.indexOf(reg.scope)===0&&reg.scope!==miScope) reg.unregister();
+      });
+      navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(function(){});
+    });
+    // Recien cuando manda nuestro SW se limpia la cache huerfana de la app vieja:
+    // antes de eso el SW viejo todavia sirve pedidos y la vuelve a llenar.
+    navigator.serviceWorker.ready.then(function(){
+      if(window.caches) caches.keys().then(function(ks){
+        ks.forEach(function(k){ if(k.indexOf('mftym-')===0) caches.delete(k); });
+      });
+    });
   }
 </script>
 

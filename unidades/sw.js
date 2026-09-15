@@ -1,4 +1,5 @@
-const CACHE = 'mtym-unidades-v34';
+const CACHE = 'mtym-unidades-v35';
+const PREFIJO = 'mtym-unidades-';
 const ASSETS = [
   './',
   './index.html',
@@ -22,7 +23,10 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      // Solo caches propias: las de /cotizador/ y otras apps del dominio no se tocan.
+      .then(keys => Promise.all(
+        keys.filter(k => k.startsWith(PREFIJO) && k !== CACHE).map(k => caches.delete(k))
+      ))
       .then(() => self.clients.matchAll({ includeUncontrolled: true }))
       .then(clients => clients.forEach(client => client.postMessage({ type: 'SW_UPDATED' })))
   );

@@ -39,12 +39,23 @@
 
   function registerSW() {
     if (!('serviceWorker' in navigator)) return;
-    var myScope = window.location.origin + '/miniflete-tym/unidades/';
+    var myScope = new URL('./', window.location.href).href;
     navigator.serviceWorker.getRegistrations().then(function (regs) {
       regs.forEach(function (reg) {
-        if (reg.scope !== myScope) reg.unregister();
+        // Solo se desregistra el SW de la app vieja de propuestas, que tiene un
+        // scope mas amplio y se mete en el nuestro. Los de apps hermanas
+        // (/cotizador/) no se tocan: cada una maneja el suyo.
+        var esAncestro = myScope.indexOf(reg.scope) === 0 && reg.scope !== myScope;
+        if (esAncestro) reg.unregister();
       });
       navigator.serviceWorker.register('./sw.js').catch(function () {});
+    });
+    // Recien cuando manda nuestro SW se limpia la cache huerfana de la app vieja:
+    // antes de eso el SW viejo todavia sirve pedidos y la vuelve a llenar.
+    navigator.serviceWorker.ready.then(function () {
+      if (window.caches) caches.keys().then(function (ks) {
+        ks.forEach(function (k) { if (k.indexOf('mftym-') === 0) caches.delete(k); });
+      });
     });
     navigator.serviceWorker.addEventListener('message', function (e) {
       if (e.data && e.data.type === 'SW_UPDATED') window.location.reload();

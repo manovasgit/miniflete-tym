@@ -1,31 +1,22 @@
-const CACHE = 'mftym-v7';
-const ASSETS = [
-  './', './index.html', './css/styles.css',
-  './js/storage.js', './js/pricing.js', './js/app.js',
-  './icons/icon-192.png', './icons/icon-512.png', './icons/logo.png',
-  './manifest.json'
-];
+// App de propuestas: OBSOLETA. Este SW ya no cachea nada.
+//
+// Su scope era /miniflete-tym/, o sea que se metia en /unidades/ y /cotizador/,
+// y su activate borraba TODAS las caches del dominio. Quedan equipos con el
+// registrado de antes, asi que en vez de borrar el archivo (un 404 tarda en
+// limpiarse) lo dejamos autodestruirse: borra sus propias caches y se desregistra.
+//
+// No agregar un handler de fetch: sin el, los pedidos van directo a la red y cada
+// app se queda con su propio SW, que tiene el scope mas especifico.
 
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
-  self.skipWaiting();
-});
+self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys =>
-    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-  ));
-  self.clients.claim();
-});
-
-self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
-    if (new URL(e.request.url).pathname.startsWith('/unidades/')) return;
-  e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request).then(res => {
-      const clone = res.clone();
-      caches.open(CACHE).then(c => c.put(e.request, clone));
-      return res;
-    }).catch(() => cached))
-  );
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    // Solo las propias (mftym-). Ojo: las de unidades y cotizador son mtym-, no mftym-.
+    await Promise.all(keys.filter(k => k.startsWith('mftym-')).map(k => caches.delete(k)));
+    await self.registration.unregister();
+    const clients = await self.clients.matchAll({ type: 'window' });
+    clients.forEach(c => c.navigate(c.url).catch(() => {}));
+  })());
 });
