@@ -1,6 +1,6 @@
 // Cotizador TyM — service worker
 // Bumpear la versión ante CUALQUIER cambio en index.html (el CSS y el JS van inline).
-const CACHE = 'mtym-cotizador-v2';
+const CACHE = 'mtym-cotizador-v3';
 const PREFIJO = 'mtym-cotizador-';
 const ASSETS = [
   './',

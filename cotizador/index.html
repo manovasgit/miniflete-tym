@@ -57,12 +57,42 @@
   .detalle{font-size:13px;color:var(--gris);margin:4px 0 0}
   .msg{white-space:pre-wrap;font-size:14px;background:#e7ffdb;border-radius:12px 12px 12px 2px;padding:12px 14px;margin-top:10px;border:1px solid #cdeec0}
   .acciones{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--linea);
-    padding:10px 16px calc(10px + env(safe-area-inset-bottom));display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .acciones button{height:48px;font:inherit;font-weight:700;border:0;border-radius:8px;color:#fff}
-  #copiar{background:var(--negro)}#enviar{background:var(--wa)}
-  #copiar.ok{background:#2d7a2d}
+    padding:10px 16px calc(10px + env(safe-area-inset-bottom));display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .acciones button{height:48px;font:inherit;font-size:15px;font-weight:700;border:0;border-radius:8px;color:#fff}
+  #copiar{background:var(--negro)}#guardarPres{background:var(--rojo)}#enviar{background:var(--wa)}
+  #copiar.ok,#guardarPres.ok{background:#2d7a2d}
   .oculto{display:none}
-  @media (prefers-reduced-motion:no-preference){#copiar,.modo button{transition:background .15s}}
+
+  /* Avisos: edición de un guardado y tarifa desactualizada */
+  .barra{border-radius:10px;padding:10px 13px;margin-bottom:14px;font-size:13px;line-height:1.35}
+  .barra button{font:inherit;font-size:12px;font-weight:700;height:30px;padding:0 11px;margin-top:8px;
+    border-radius:7px;border:1px solid currentColor;background:#fff;color:inherit}
+  #editBar{background:#fff4d6;border:1px solid #e8c877;color:#7a5a00}
+  #avisoTarifa{background:#fdecea;border:1px solid #f0b4ae;color:var(--rojo)}
+  #avisoTarifa ul{margin:6px 0 0;padding-left:18px}
+
+  /* Lista de presupuestos guardados */
+  #secLista summary{font-size:15px;font-weight:700}
+  .pres{border:1px solid var(--linea);border-left:4px solid var(--linea);border-radius:9px;padding:10px 12px;margin-top:10px}
+  .pres.urge{border-left-color:var(--rojo2);background:#fffaf9}
+  .pres-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .pres-top b{font-size:15px;word-break:break-word}
+  .pres-top .monto{font-weight:700;color:var(--rojo);white-space:nowrap}
+  .pres-ruta{font-size:13px;color:var(--gris);margin-top:2px}
+  .pres-meta{font-size:12px;color:var(--gris);margin-top:5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+    padding:2px 7px;border-radius:99px;border:1px solid}
+  .tag.enviado{color:#8a6100;border-color:#e8c877;background:#fff4d6}
+  .tag.confirmado{color:#1d6b2f;border-color:#a8d8b2;background:#e7f7ec}
+  .tag.descartado{color:var(--gris);border-color:var(--linea);background:#f2f0f0}
+  .pres-acc{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .pres-acc button{font:inherit;font-size:12px;font-weight:700;height:32px;padding:0 10px;
+    border-radius:7px;border:1px solid var(--linea);background:#fff;color:var(--negro)}
+  .pres-acc button[data-a="wa"]{background:var(--wa);border-color:var(--wa);color:#fff}
+  .pres-acc button[data-a="abrir"]{background:var(--negro);border-color:var(--negro);color:#fff}
+  .pres-acc button[disabled]{opacity:.4}
+  .vacio{font-size:13px;color:var(--gris);margin:10px 0 0}
+  @media (prefers-reduced-motion:no-preference){#copiar,#guardarPres,.modo button{transition:background .15s}}
 </style>
 </head>
 <body>
@@ -72,6 +102,12 @@
 </header>
 <main>
 
+<div id="editBar" class="barra oculto">
+  <span id="editTxt"></span>
+  <button type="button" id="editSalir">Empezar uno nuevo</button>
+</div>
+<div id="avisoTarifa" class="barra oculto"></div>
+
 <div class="modo">
   <button type="button" id="mTiempo" aria-pressed="true">Por tiempo<small>mudanzas</small></button>
   <button type="button" id="mCerrado" aria-pressed="false">Precio cerrado<small>fletes puntuales</small></button>
@@ -79,6 +115,10 @@
 
 <section>
   <h2>Servicio</h2>
+  <div class="fila">
+    <div><label for="cliente">Cliente</label><input id="cliente" placeholder="Nombre de referencia"></div>
+    <div><label for="telefono">Teléfono</label><input id="telefono" type="tel" inputmode="tel" placeholder="11 4567-8901"></div>
+  </div>
   <label for="desc">Qué se traslada</label>
   <textarea id="desc" placeholder="Ej.: sillón 3 cuerpos, mesa ratona y 6 cajas"></textarea>
   <div class="fila">
@@ -169,10 +209,18 @@
   <div class="msg" id="msg"></div>
 </section>
 
+<section id="secLista">
+  <details id="detLista">
+    <summary>Presupuestos guardados (<span id="contLista">0</span>)</summary>
+    <div id="lista"></div>
+  </details>
+</section>
+
 </main>
 <div class="acciones">
-  <button type="button" id="copiar">Copiar mensaje</button>
-  <button type="button" id="enviar">Enviar por WhatsApp</button>
+  <button type="button" id="copiar">Copiar</button>
+  <button type="button" id="guardarPres">Guardar</button>
+  <button type="button" id="enviar">WhatsApp</button>
 </div>
 
 <script>
@@ -201,13 +249,24 @@
 (function(){
   const $=id=>document.getElementById(id);
   const tarifaIds=['tBase','tMedia','tEsc','tHoras','tPeones'];
-  let horas=1.5, modo='tiempo';
+  const LINEAS=['lnPeones','lnEsc','lnMantas','lnFilm'];
+  const K_PRES='tym_presupuestos';          // solo presupuestos: tym_tarifas no se toca
+  const DIA=86400000, DIAS_LIMPIEZA=15, DIAS_SEGUIMIENTO=2;
+  let horas=1.5, modo='tiempo', editandoId=null;
 
-  try{
-    const g=JSON.parse(localStorage.getItem('tym_tarifas')||'{}');
-    tarifaIds.forEach(id=>{ if(g[id]!=null) $(id).value=g[id]; });
-    if(g.tHoras!=null) horas=+g.tHoras;
-  }catch(e){}
+  // Valores de fábrica del HTML, por si todavía no se guardó ninguna tarifa.
+  const DEFAULTS={}; tarifaIds.forEach(id=>DEFAULTS[id]=$(id).value);
+
+  // Deja el formulario en la tarifa vigente. Se usa al abrir la app y cada vez que se
+  // arranca un presupuesto nuevo: si antes se abrió uno viejo, sus valores quedaron
+  // cargados y no tienen que arrastrarse al siguiente.
+  function aplicarTarifas(){
+    let g={};
+    try{ g=JSON.parse(localStorage.getItem('tym_tarifas')||'{}')||{}; }catch(e){}
+    tarifaIds.forEach(id=>{ $(id).value=(g[id]!=null?g[id]:DEFAULTS[id]); });
+    horas=+$('tHoras').value||1.5;
+  }
+  aplicarTarifas();
 
   $('guardar').onclick=function(){
     try{
@@ -224,6 +283,60 @@
     const e=Math.floor(h), m=h%1?' y media':'';
     return e+(e===1?' hora':' horas')+m;
   };
+  const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  /* ---------- teléfono ---------- */
+  // Devuelve el número listo para wa.me (549 + número nacional) o '' si no da.
+  function normalizarTel(raw){
+    let d=String(raw==null?'':raw).replace(/\D/g,'');
+    if(!d) return '';
+    d=d.replace(/^00/,'');
+    if(d.length>10&&d.slice(0,2)==='54') d=d.slice(2);   // código de país
+    if(d.length>10&&d[0]==='9') d=d.slice(1);            // 9 de celular
+    d=d.replace(/^0+/,'');                               // 0 de larga distancia
+    if(d.length>10){                                     // 15 después de la característica
+      for(let i=2;i<=4;i++){
+        if(d.slice(i,i+2)==='15'&&d.length-2>=10){ d=d.slice(0,i)+d.slice(i+2); break; }
+      }
+    }
+    return d.length>=10?'549'+d:'';
+  }
+  const telValido=t=>/^549\d{10,12}$/.test(String(t==null?'':t));
+
+  /* ---------- almacenamiento ---------- */
+  function leerPres(){
+    try{ const a=JSON.parse(localStorage.getItem(K_PRES)||'[]'); return Array.isArray(a)?a:[]; }
+    catch(e){ return []; }
+  }
+  function escribirPres(a){
+    try{ localStorage.setItem(K_PRES,JSON.stringify(a)); return true; }catch(e){ return false; }
+  }
+  function diasDesde(iso){
+    const t=Date.parse(iso);
+    return isNaN(t)?0:Math.floor((Date.now()-t)/DIA);
+  }
+  const textoDias=n=>n<=0?'enviado hoy':(n===1?'enviado ayer':'enviado hace '+n+' días');
+
+  // Corre al abrir la app. Los confirmados no se borran nunca.
+  function limpiarViejos(){
+    const a=leerPres();
+    const b=a.filter(p=>!((p.estado==='enviado'||p.estado==='descartado')&&diasDesde(p.fechaEnvio)>DIAS_LIMPIEZA));
+    if(b.length!==a.length) escribirPres(b);
+  }
+
+  /* ---------- estado del formulario ---------- */
+  function leerFormulario(){
+    const v={escalera:$('escalera').value,cEspera:$('cEspera').value,horas:horas,
+             precioCerrado:$('precioCerrado').value};
+    tarifaIds.forEach(id=>v[id]=$(id).value);
+    const l={}; LINEAS.forEach(id=>l[id]=$(id).checked);
+    return {
+      cliente:$('cliente').value.trim(), telefono:$('telefono').value.trim(),
+      desc:$('desc').value.trim(), origen:$('origen').value.trim(),
+      destino:$('destino').value.trim(), fecha:$('fecha').value.trim(),
+      modo:modo, valores:v, lineas:l
+    };
+  }
 
   function setModo(m){
     modo=m;
@@ -235,73 +348,251 @@
     calcular();
   }
 
-  function encabezado(){
-    const desc=$('desc').value.trim(), o=$('origen').value.trim(),
-          d=$('destino').value.trim(), f=$('fecha').value.trim();
+  function encabezado(e){
     let m='🚚 *Presupuesto Miniflete TyM*\n';
-    if(desc) m+='Servicio: '+desc+'\n';
-    if(o||d) m+='Recorrido: '+(o||'—')+' → '+(d||'—')+'\n';
-    if(f) m+='Fecha: '+f+'\n';
+    if(e.desc) m+='Servicio: '+e.desc+'\n';
+    if(e.origen||e.destino) m+='Recorrido: '+(e.origen||'—')+' → '+(e.destino||'—')+'\n';
+    if(e.fecha) m+='Fecha: '+e.fecha+'\n';
     return m;
   }
 
-  function calcular(){
-    const peones=+$('tPeones').value||0;
-    const conPeones=$('lnPeones').checked&&peones>0;
+  // Calcula y arma el mensaje a partir de un estado (el formulario o un registro
+  // guardado). No toca el DOM: así la lista puede regenerar cualquier mensaje.
+  function computar(e){
+    const v=e.valores||{}, l=e.lineas||{};
+    const peones=+v.tPeones||0;
+    const conPeones=!!l.lnPeones&&peones>0;
     const txtPeones=peones+(peones===1?' peón':' peones');
-    let total, m;
+    let total, m, detalle, medias=0, hs=+v.horas||0;
 
-    if(modo==='tiempo'){
-      const base=+$('tBase').value||0, media=+$('tMedia').value||0, esc=+$('tEsc').value||0;
-      const hInc=+$('tHoras').value||1.5;
-      if(horas<hInc) horas=hInc;
-      const escalera=$('escalera').value;
-      const medias=Math.max(0,Math.round((horas-hInc)/0.5));
-      const adEsc=(escalera==='no'||!$('lnEsc').checked)?0:esc;
+    if(e.modo!=='cerrado'){
+      const base=+v.tBase||0, media=+v.tMedia||0, escv=+v.tEsc||0;
+      const hInc=+v.tHoras||1.5;
+      if(hs<hInc) hs=hInc;
+      const escalera=v.escalera||'no';
+      medias=Math.max(0,Math.round((hs-hInc)/0.5));
+      const adEsc=(escalera==='no'||!l.lnEsc)?0:escv;
       total=base+medias*media+adEsc;
 
-      $('horasOut').innerHTML=String(horas).replace('.',',')+' h<small>'+
-        (medias?medias+' × media hora extra':'tiempo inicial incluido')+'</small>';
-      $('detalle').textContent='Inicial '+peso(base)+(medias?' + '+medias+' × '+peso(media):'')+(adEsc?' + escalera '+peso(adEsc):'');
+      detalle='Inicial '+peso(base)+(medias?' + '+medias+' × '+peso(media):'')+(adEsc?' + escalera '+peso(adEsc):'');
 
       const dondeEsc={origen:'en origen',destino:'en destino',ambos:'en origen y destino'}[escalera];
-      m=encabezado();
+      m=encabezado(e);
       m+='\nTomando como referencia el servicio informado:\n';
       m+='• Servicio inicial: '+peso(base)+', hasta '+fmtH(hInc)+' de trabajo'+
         (conPeones?', con traslado y '+txtPeones+' para la carga y descarga':', con el traslado incluido')+'.\n';
-      if($('lnEsc').checked){
+      if(l.lnEsc){
         m+=escalera==='no'
           ?'• Trabajo por escalera: en caso de requerirse, tiene un adicional que se evalúa según el piso y la cantidad de bultos.\n'
-          :'• Trabajo por escalera '+dondeEsc+': adicional de '+peso(esc)+'.\n';
+          :'• Trabajo por escalera '+dondeEsc+': adicional de '+peso(escv)+'.\n';
       }
       m+='• Tiempo excedente: superado el tiempo inicial, se adicionan '+peso(media)+' por cada media hora.\n';
-      if($('lnMantas').checked) m+='• Los muebles se protegen con mantas y lonas durante el traslado.\n';
-      if($('lnFilm').checked) m+='• Embalaje con film stretch: se cotiza por separado.\n';
-      m+='\nTiempo estimado: aprox. '+fmtH(horas)+'.\n';
+      if(l.lnMantas) m+='• Los muebles se protegen con mantas y lonas durante el traslado.\n';
+      if(l.lnFilm) m+='• Embalaje con film stretch: se cotiza por separado.\n';
+      m+='\nTiempo estimado: aprox. '+fmtH(hs)+'.\n';
       m+='*Valor estimado del servicio: '+peso(total)+'*\n\n';
       m+='El importe y el tiempo son estimativos, calculados según los muebles, bultos y cajas informados. La duración real puede variar por cantidad de elementos, accesos, ascensor, esperas o armado y desarmado de muebles. El importe final se define por el tiempo efectivo de trabajo y los adicionales que correspondan.\n\n';
     } else {
-      total=+$('precioCerrado').value||0;
-      $('detalle').textContent='Precio cerrado por el trabajo';
-      m=encabezado();
+      total=+v.precioCerrado||0;
+      detalle='Precio cerrado por el trabajo';
+      m=encabezado(e);
       m+='\n*Valor del servicio: '+peso(total)+'*\n\n';
       m+='El valor incluye:\n';
       m+=conPeones
         ?'• El traslado y '+txtPeones+' para la carga y descarga.\n'
         :'• El traslado de los elementos informados.\n';
-      if($('lnMantas').checked) m+='• Protección de los muebles con mantas y lonas.\n';
-      if($('lnEsc').checked) m+='• Si hay que subir o bajar por escalera y no fue informado, se cotiza un adicional.\n';
-      if($('lnFilm').checked) m+='• Embalaje con film stretch: se cotiza por separado.\n';
-      if($('cEspera').value==='si') m+='• Las esperas en el domicilio se cobran aparte.\n';
+      if(l.lnMantas) m+='• Protección de los muebles con mantas y lonas.\n';
+      if(l.lnEsc) m+='• Si hay que subir o bajar por escalera y no fue informado, se cotiza un adicional.\n';
+      if(l.lnFilm) m+='• Embalaje con film stretch: se cotiza por separado.\n';
+      if(v.cEspera==='si') m+='• Las esperas en el domicilio se cobran aparte.\n';
       m+='\nEs un precio cerrado por el trabajo descripto. Si al momento del servicio cambia la cantidad de elementos o las condiciones de acceso, actualizamos el presupuesto antes de empezar.\n\n';
     }
 
-    $('total').textContent=peso(total);
     m+='¿Te reservamos la fecha?';
-    $('msg').textContent=m;
-    return m;
+    return {total:total,mensaje:m,detalle:detalle,medias:medias,horas:hs};
   }
 
+  function calcular(){
+    const r=computar(leerFormulario());
+    if(modo==='tiempo'){
+      horas=r.horas;
+      $('horasOut').innerHTML=String(horas).replace('.',',')+' h<small>'+
+        (r.medias?r.medias+' × media hora extra':'tiempo inicial incluido')+'</small>';
+    }
+    $('detalle').textContent=r.detalle;
+    $('total').textContent=peso(r.total);
+    $('msg').textContent=r.mensaje;
+    return r.mensaje;
+  }
+
+  /* ---------- edición de un presupuesto guardado ---------- */
+  function pintarEdicion(){
+    const hay=editandoId!=null;
+    $('editBar').classList.toggle('oculto',!hay);
+    if(!hay) return;
+    const p=leerPres().find(x=>x.id===editandoId);
+    $('editTxt').textContent='Estás editando un presupuesto guardado'+
+      (p&&p.cliente?' de '+p.cliente:'')+'. Al guardar se actualiza ese mismo registro.';
+  }
+
+  const ETIQ={tBase:'Servicio inicial',tMedia:'Media hora extra',tEsc:'Escalera',tHoras:'Horas incluidas'};
+  const fmtVal=(k,v)=>k==='tHoras'?String(v).replace('.',',')+' h':peso(+v);
+
+  // Compara los valores con los que se cotizó contra la tarifa guardada hoy.
+  // No recalcula nada: solo avisa, la decisión es del usuario.
+  function avisarTarifa(p){
+    const box=$('avisoTarifa');
+    box.innerHTML=''; box.classList.add('oculto');
+    if(!p||p.modo==='cerrado') return;
+    let g={};
+    try{ g=JSON.parse(localStorage.getItem('tym_tarifas')||'{}')||{}; }catch(e){ return; }
+    const v=p.valores||{}, dif=[];
+    Object.keys(ETIQ).forEach(k=>{
+      if(g[k]==null||v[k]==null||+g[k]===+v[k]) return;
+      dif.push(ETIQ[k]+': se cotizó a '+fmtVal(k,v[k])+' · hoy la tarifa es '+fmtVal(k,g[k]));
+    });
+    if(!dif.length) return;
+    box.innerHTML='<b>La tarifa cambió desde que se cotizó.</b> Se cargaron los valores originales; '+
+      'si querés recotizar, actualizalos a mano.<ul><li>'+dif.map(esc).join('</li><li>')+'</li></ul>';
+    box.classList.remove('oculto');
+  }
+
+  function abrir(id){
+    const p=leerPres().find(x=>x.id===id);
+    if(!p) return;
+    const v=p.valores||{};
+    tarifaIds.forEach(k=>{ if(v[k]!=null) $(k).value=v[k]; });
+    $('escalera').value=v.escalera||'no';
+    $('cEspera').value=v.cEspera||'no';
+    $('precioCerrado').value=v.precioCerrado!=null?v.precioCerrado:'';
+    horas=+v.horas||+v.tHoras||1.5;
+    LINEAS.forEach(k=>{ $(k).checked=p.lineas&&p.lineas[k]!==undefined?!!p.lineas[k]:true; });
+    $('cliente').value=p.cliente||'';
+    $('telefono').value=p.telefono||'';
+    $('desc').value=p.desc||'';
+    $('origen').value=p.origen||'';
+    $('destino').value=p.destino||'';
+    $('fecha').value=p.fecha||'';
+    editandoId=p.id;
+    pintarEdicion();
+    avisarTarifa(p);
+    setModo(p.modo==='cerrado'?'cerrado':'tiempo');
+    $('detLista').open=false;
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+
+  // Deja el formulario en blanco sin tocar las tarifas ni los presupuestos guardados.
+  function limpiarFormulario(){
+    editandoId=null;
+    ['cliente','telefono','desc','origen','destino','fecha','precioCerrado'].forEach(id=>$(id).value='');
+    LINEAS.forEach(id=>$(id).checked=true);
+    $('escalera').value='no'; $('cEspera').value='no';
+    aplicarTarifas();
+    $('avisoTarifa').classList.add('oculto');
+    pintarEdicion();
+  }
+
+  $('editSalir').onclick=function(){ limpiarFormulario(); calcular(); };
+
+  /* ---------- lista ---------- */
+  function pintarLista(){
+    const lista=leerPres().slice().sort((a,b)=>Date.parse(b.fechaEnvio)-Date.parse(a.fechaEnvio));
+    $('contLista').textContent=lista.length;
+    if(!lista.length){
+      $('lista').innerHTML='<p class="vacio">Todavía no guardaste ningún presupuesto.</p>';
+      return;
+    }
+    $('lista').innerHTML=lista.map(p=>{
+      const d=diasDesde(p.fechaEnvio), est=p.estado||'enviado';
+      const urge=est==='enviado'&&d>=DIAS_SEGUIMIENTO;
+      const wa=telValido(p.telefono);
+      return '<article class="pres'+(urge?' urge':'')+'" data-id="'+esc(p.id)+'">'+
+        '<div class="pres-top"><b>'+esc(p.cliente||'Sin nombre')+'</b>'+
+          '<span class="monto">'+peso(+p.total||0)+'</span></div>'+
+        '<div class="pres-ruta">'+esc(p.origen||'—')+' → '+esc(p.destino||'—')+'</div>'+
+        '<div class="pres-meta"><span class="tag '+esc(est)+'">'+esc(est)+'</span>'+
+          '<span>'+esc(textoDias(d))+'</span>'+
+          (urge?'<span>· necesita seguimiento</span>':'')+'</div>'+
+        '<div class="pres-acc">'+
+          '<button type="button" data-a="wa"'+(wa?'':' disabled')+'>WhatsApp</button>'+
+          '<button type="button" data-a="abrir">Abrir</button>'+
+          '<button type="button" data-a="conf">Confirmado</button>'+
+          '<button type="button" data-a="desc">Descartado</button>'+
+          '<button type="button" data-a="del">Borrar</button>'+
+        '</div></article>';
+    }).join('');
+  }
+
+  $('lista').addEventListener('click',function(ev){
+    const b=ev.target.closest('button[data-a]');
+    if(!b||b.disabled) return;
+    const art=b.closest('.pres');
+    if(!art) return;
+    const id=+art.dataset.id, a=b.dataset.a;
+
+    if(a==='abrir'){ abrir(id); return; }
+    if(a==='wa'){
+      const p=leerPres().find(x=>x.id===id);
+      if(!p||!telValido(p.telefono)) return;
+      window.open('https://wa.me/'+p.telefono+'?text='+encodeURIComponent(computar(p).mensaje),'_blank');
+      return;
+    }
+    if(a==='del'){
+      if(!confirm('¿Borrar este presupuesto?')) return;
+      escribirPres(leerPres().filter(x=>x.id!==id));
+      if(editandoId===id){ editandoId=null; pintarEdicion(); }
+      pintarLista();
+      return;
+    }
+    // Confirmado / Descartado: volver a tocar el mismo botón lo devuelve a enviado.
+    const nuevo=a==='conf'?'confirmado':'descartado';
+    const l=leerPres(), i=l.findIndex(x=>x.id===id);
+    if(i<0) return;
+    l[i].estado=(l[i].estado===nuevo)?'enviado':nuevo;
+    escribirPres(l);
+    pintarLista();
+  });
+
+  /* ---------- guardar presupuesto ---------- */
+  function avisoBoton(btn,txt){
+    btn.textContent=txt;
+    setTimeout(()=>{ btn.textContent='Guardar'; btn.classList.remove('ok'); },1600);
+  }
+
+  $('guardarPres').onclick=function(){
+    const e=leerFormulario();
+    const r=computar(e);
+    const lista=leerPres();
+    const ix=editandoId!=null?lista.findIndex(p=>p.id===editandoId):-1;
+
+    let id;
+    if(ix>=0){ id=lista[ix].id; }
+    else { id=Date.now(); while(lista.some(p=>p.id===id)) id++; }
+
+    e.valores.horas=r.horas;
+    const reg={
+      id:id,
+      fechaEnvio:new Date().toISOString(),
+      cliente:e.cliente,
+      // Si no se puede normalizar se guarda el texto tal cual y la ficha queda sin WhatsApp.
+      telefono:normalizarTel(e.telefono)||e.telefono,
+      desc:e.desc, origen:e.origen, destino:e.destino, fecha:e.fecha,
+      modo:e.modo, valores:e.valores, lineas:e.lineas,
+      total:r.total,
+      estado:ix>=0?(lista[ix].estado||'enviado'):'enviado'
+    };
+    if(ix>=0) lista[ix]=reg; else lista.push(reg);
+
+    if(!escribirPres(lista)){ avisoBoton(this,'No se pudo'); return; }
+
+    editandoId=id;          // evita duplicar si se toca Guardar dos veces seguidas
+    pintarEdicion();
+    pintarLista();
+    this.classList.add('ok');
+    avisoBoton(this,'Guardado');
+  };
+
+  /* ---------- acciones fijas ---------- */
   $('mTiempo').onclick=()=>setModo('tiempo');
   $('mCerrado').onclick=()=>setModo('cerrado');
   $('mas').onclick=()=>{horas+=0.5;calcular();};
@@ -316,10 +607,16 @@
     try{ await navigator.clipboard.writeText(m); }
     catch(e){ const t=document.createElement('textarea');t.value=m;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove(); }
     this.textContent='Copiado';this.classList.add('ok');
-    setTimeout(()=>{this.textContent='Copiar mensaje';this.classList.remove('ok');},1500);
+    setTimeout(()=>{this.textContent='Copiar';this.classList.remove('ok');},1500);
   };
-  $('enviar').onclick=()=>{ window.open('https://wa.me/?text='+encodeURIComponent(calcular()),'_blank'); };
+  $('enviar').onclick=()=>{
+    const tel=normalizarTel($('telefono').value);
+    window.open('https://wa.me/'+(telValido(tel)?tel:'')+'?text='+encodeURIComponent(calcular()),'_blank');
+  };
 
+  limpiarViejos();
+  pintarLista();
+  pintarEdicion();
   calcular();
 })();
 </script>
