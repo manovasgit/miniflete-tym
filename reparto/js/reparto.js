@@ -19,25 +19,98 @@
   var ocupado = false;      // evita dos cálculos de recorrido a la vez
   var sortable = null;
   var ultimoFinalizado = null;
+  var usuario = null;       // etapa 2: usuario logueado (null si la app corre sin backend)
+  var abrirHoja = Hoja.abrir, cerrarHoja = Hoja.cerrar, cargando = Hoja.cargando;
 
   // ── Arranque ───────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function () {
     $('#version').textContent = CONFIG.VERSION;
     $('#btn-ajustes').addEventListener('click', abrirAjustes);
-    $('#hoja-fondo').addEventListener('click', cerrarHoja);
     var h = Store.historial()[0];
     if (h && h.fecha === U.hoy()) ultimoFinalizado = h;
-    iniciarUbicador();
-    render();
+    if (!Api.activa()) { render(); return; }
+    Sesion.exigir('chofer').then(arrancar);
   });
 
-  function base() { return Store.ajustes().base; }
+  function arrancar(u) {
+    usuario = u;
+    if (u.roles.indexOf('repartidor') < 0) { renderSinReparto(); return; }
+    // Si el celular tiene un reparto de otro usuario (celular compartido), no se mezcla
+    var r = Store.reparto();
+    if (r && r.repartidor_id && r.repartidor_id !== u.id) {
+      Store.borrar('actual');
+      Store.borrar('cola');
+    }
+    Api.iniciarCola();
+    Api.alEstado(pintarSync);
+    render();
+    // En segundo plano: datos frescos del usuario (la base la puede haber cambiado el admin)
+    // y, si el celular perdió el reparto del día, se recupera del servidor
+    Sesion.refrescar().then(function (nu) {
+      if (nu) usuario = nu;
+      if (!Store.reparto()) return recuperarDelServidor();
+    }).then(function () { render(); });
+  }
+
+  function recuperarDelServidor() {
+    return Api.llamar('mis.repartos', { fecha: U.hoy() }).then(function (res) {
+      if (!res.ok || Store.reparto()) return;
+      var abierto = res.repartos.filter(function (r) { return r.estado !== 'finalizado'; })[0];
+      if (!abierto) return;
+      var r = Object.assign({}, abierto, { paradas: [], geometria: null, ruta_vieja: true });
+      r.paradas = res.paradas.filter(function (p) { return p.reparto_id === r.id; });
+      Store.escribir('actual', r);
+      U.toast('Se recuperó tu reparto de hoy del servidor');
+    }).catch(function () { /* sin señal: se sigue con lo local */ });
+  }
+
+  // Usuarios sin rol de repartidor (fletero, sucursal, dueño, admin solo)
+  function renderSinReparto() {
+    var panel = ['admin', 'duenio', 'sucursal'].some(function (r) { return usuario.roles.indexOf(r) >= 0; });
+    var fletero = usuario.roles.indexOf('fletero') >= 0;
+    $('#vista').innerHTML = '<div class="vacio">' +
+      '<h2>Hola, ' + esc(usuario.nombre_mostrar) + '</h2>' +
+      (fletero ? '<p>Acá te van a aparecer los fletes que te asignen.</p>' : '') +
+      (panel ? '<p>Tu usuario es para el panel de seguimiento.</p><a class="btn btn-pri btn-grande" href="panel.html">Ir al panel</a>' : '') +
+      '<button class="btn-link" id="btn-salir">Cerrar sesión</button></div>';
+    $('#btn-salir').addEventListener('click', function () { Sesion.salir(); });
+  }
+
+  // Indicador de envío al servidor, en la barra de arriba
+  function pintarSync(e) {
+    var el = $('#chip-sync');
+    if (!el) return;
+    var txt = '', cls = '';
+    if (e.estado === 'sin_senal') { txt = e.pendientes ? 'Sin señal · ' + e.pendientes : 'Sin señal'; cls = 'sync-mal'; }
+    else if (e.estado === 'error') { txt = 'Error al enviar'; cls = 'sync-mal'; }
+    else if (e.pendientes) { txt = 'Enviando ' + e.pendientes; cls = 'sync-pend'; }
+    else { txt = '✓ Al día'; cls = 'sync-ok'; }
+    el.textContent = txt;
+    el.className = 'chip-sync ' + cls;
+    el.title = e.error || '';
+    el.hidden = false;
+  }
+
+  // La base viene de la sucursal del repartidor (la carga el admin). Si todavía no está, la local.
+  function base() {
+    var s = usuario && usuario.sucursal;
+    if (s && s.lat != null) {
+      return { direccion: s.direccion + (s.localidad ? ', ' + s.localidad : ''), lat: s.lat, lng: s.lng, servidor: true, nombre: s.nombre };
+    }
+    return Store.ajustes().base;
+  }
 
   function repartoOCrear() {
     var r = Store.reparto();
     if (r) return r;
-    var b = base();
-    return Store.nuevoReparto(b);
+    r = Store.nuevoReparto(base());
+    if (usuario) {
+      r.repartidor_id = usuario.id;
+      r.cliente_id = usuario.cliente_id;
+      r.sucursal_id = usuario.sucursal_id;
+      Store.guardarReparto(r);
+    }
+    return r;
   }
 
   // Paradas con el orden visible: primero las cerradas (en el orden en que se hicieron), después las pendientes
@@ -68,8 +141,11 @@
         '<div class="vacio">' +
         '<div class="vacio-icono">⌂</div>' +
         '<h2>Primero, tu base</h2>' +
-        '<p>El recorrido sale de la base y vuelve a ella. Cargá la dirección una sola vez.</p>' +
-        '<button class="btn btn-pri" id="btn-base">Cargar dirección de la base</button>' +
+        (usuario
+          ? '<p>Tu sucursal todavía no tiene cargada la dirección de la base. Pedile al administrador que la cargue en el panel.</p>' +
+            '<button class="btn btn-sec" id="btn-base">Usar una base provisoria</button>'
+          : '<p>El recorrido sale de la base y vuelve a ella. Cargá la dirección una sola vez.</p>' +
+            '<button class="btn btn-pri" id="btn-base">Cargar dirección de la base</button>') +
         '</div>';
       $('#btn-base').addEventListener('click', editarBase);
       return;
@@ -245,6 +321,8 @@
     var bd = $('#btn-descartar');
     if (bd) bd.addEventListener('click', function () {
       if (!confirm('¿Descartar el reparto y todas sus paradas?')) return;
+      // Si ya se había mandado al servidor, se marca como eliminado para que no aparezca en los paneles
+      if (r.hora_armado) { r.eliminado = true; Store.guardarReparto(r); }
       Store.borrar('actual');
       render();
     });
@@ -390,18 +468,6 @@
     ids.forEach(function (id) { Store.parada(r, id).orden = n++; });
     Store.guardarReparto(r);
     armarRecorrido({ fijo: true, usarGPS: false });
-  }
-
-  function cargando(msg) {
-    var el = $('#cargando');
-    if (!msg) { if (el) el.remove(); return; }
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'cargando';
-      el.className = 'cargando';
-      document.body.appendChild(el);
-    }
-    el.innerHTML = '<div class="rueda"></div><p>' + esc(msg) + '</p>';
   }
 
   // ── Acciones sobre paradas ─────────────────────────────────────────────
@@ -628,7 +694,7 @@
         Store.nuevaParada(rr, x);
       }
       cerrarHoja();
-      cerrarUbicador();
+      Ubicador.cerrar();
       rr = Store.reparto();
       if (enCurso) {
         // Con el reparto en curso se recalculan solo las pendientes, desde donde está el chofer
@@ -647,120 +713,31 @@
       if (!validar(x)) return;
       var cambioDir = U.normalizar(x.direccion + '|' + x.localidad) !== dirOriginal;
       if (geo && !cambioDir) { guardar(x, geo); return; }
-      abrirUbicador(x.direccion, x.localidad, null, function (g) { guardar(x, g); });
+      Ubicador.abrir(x.direccion, x.localidad, null, function (g) { guardar(x, g); });
     });
     var reu = $('#f-reubicar');
     if (reu) reu.addEventListener('click', function () {
       var x = datos();
       if (!validar(x)) return;
-      abrirUbicador(x.direccion, x.localidad, geo, function (g) { guardar(x, g); });
+      Ubicador.abrir(x.direccion, x.localidad, geo, function (g) { guardar(x, g); });
     });
     if (!p) setTimeout(function () { $('#f-dir').focus(); }, 250);
   }
-
-  // ── Ubicador: geocodificar y confirmar en el mapa ──────────────────────
-  var ubi = { mapa: null, cands: [], sel: null, dir: '', loc: '', alOk: null, osmPedido: false };
-
-  function iniciarUbicador() {
-    $('#ubi-volver').addEventListener('click', cerrarUbicador);
-    $('#ubi-ok').addEventListener('click', function () {
-      if (!ubi.sel) return;
-      var g = ubi.sel;
-      var cb = ubi.alOk;
-      cerrarUbicador();
-      cb(g);
-    });
-    $('#ubi-mas').addEventListener('click', function () {
-      if (ubi.osmPedido) return;
-      ubi.osmPedido = true;
-      $('#ubi-mas').textContent = 'Buscando…';
-      Routing.geocodificarOSM(ubi.dir, ubi.loc).then(function (osm) {
-        var nuevas = osm.filter(function (o) {
-          return !ubi.cands.some(function (c) { return Math.abs(c.lat - o.lat) < 1e-4 && Math.abs(c.lng - o.lng) < 1e-4; });
-        });
-        ubi.cands = ubi.cands.filter(function (c) { return !c.cache; }).concat(nuevas);
-        $('#ubi-mas').hidden = true;
-        if (!nuevas.length) U.toast('No hay más coincidencias. Mové el pin a mano.');
-        pintarCandidatos();
-        if (!ubi.sel && ubi.cands.length) elegirCandidato(0);
-      });
-    });
-  }
-
-  function abrirUbicador(dir, loc, actual, alOk) {
-    ubi.dir = dir; ubi.loc = loc; ubi.alOk = alOk; ubi.cands = []; ubi.sel = null; ubi.osmPedido = false;
-    $('#ubicador').hidden = false;
-    $('#ubi-mas').hidden = false;
-    $('#ubi-mas').textContent = 'Buscar más opciones';
-    $('#ubi-ok').disabled = true;
-    $('#ubi-lista').innerHTML = '<p class="ayuda">Buscando ' + esc(dir) + '…</p>';
-    if (!ubi.mapa) ubi.mapa = new Mapa.Confirmar($('#ubi-mapa'));
-    ubi.mapa.ajustar();
-
-    if (actual) {
-      ubi.cands = [{ lat: actual.lat, lng: actual.lng, etiqueta: 'Ubicación guardada', fuente: actual.fuente || 'manual' }];
-      pintarCandidatos();
-      elegirCandidato(0);
-      return;
-    }
-    Routing.geocodificar(dir, loc).then(function (lista) {
-      if ($('#ubicador').hidden) return;
-      ubi.cands = lista;
-      if (!lista.length) {
-        $('#ubi-lista').innerHTML = '<p class="txt-mal">No encontré la dirección. Probá "Buscar más opciones" o mové el pin al lugar correcto.</p>';
-        ubi.mapa.mostrar(CONFIG.CENTRO_MAPA[0], CONFIG.CENTRO_MAPA[1], moverPin);
-        ubi.mapa.m.setZoom(12);
-        ubi.sel = null;
-        return;
-      }
-      pintarCandidatos();
-      elegirCandidato(0);
-    });
-  }
-
-  function moverPin(lat, lng) {
-    ubi.sel = { lat: lat, lng: lng, etiqueta: 'Marcada a mano', fuente: 'manual' };
-    $('#ubi-ok').disabled = false;
-    $$('#ubi-lista .cand').forEach(function (x) { x.classList.remove('sel'); });
-    $('#ubi-ayuda').textContent = '📍 Pin movido a mano.';
-  }
-
-  function pintarCandidatos() {
-    var l = $('#ubi-lista');
-    if (ubi.cands.length <= 1 && ubi.cands[0] && !ubi.cands[0].cache) {
-      l.innerHTML = '<div class="cand sel">' + esc(ubi.cands[0].etiqueta) + aproximada(ubi.cands[0]) + '</div>';
-    } else {
-      l.innerHTML = ubi.cands.map(function (c, i) {
-        return '<button class="cand" data-i="' + i + '">' + esc(c.etiqueta) + (c.cache ? ' <small>(ya usada antes)</small>' : '') + aproximada(c) + '</button>';
-      }).join('');
-      $$('.cand', l).forEach(function (b) { b.addEventListener('click', function () { elegirCandidato(+b.dataset.i); }); });
-    }
-    ubi.mapa.alternativas(ubi.cands, elegirCandidato);
-  }
-
-  function aproximada(c) {
-    return c.precision === 'calle' ? ' <small class="txt-mal">(sin altura exacta: revisá el pin)</small>' : '';
-  }
-
-  function elegirCandidato(i) {
-    var c = ubi.cands[i];
-    if (!c) return;
-    ubi.sel = { lat: c.lat, lng: c.lng, etiqueta: c.etiqueta, fuente: c.fuente };
-    $$('#ubi-lista .cand').forEach(function (x) { x.classList.toggle('sel', +x.dataset.i === i); });
-    $('#ubi-ayuda').textContent = 'Tocá o arrastrá el pin para corregir.';
-    $('#ubi-ok').disabled = false;
-    ubi.mapa.mostrar(c.lat, c.lng, moverPin);
-  }
-
-  function cerrarUbicador() { $('#ubicador').hidden = true; }
 
   // ── Ajustes ────────────────────────────────────────────────────────────
   function abrirAjustes() {
     var a = Store.ajustes();
     var app = Store.navApp();
+    var b = base();
+    var verPanel = usuario && ['admin', 'duenio', 'sucursal'].some(function (x) { return usuario.roles.indexOf(x) >= 0; });
     abrirHoja('<h2>Ajustes</h2>' +
-      '<div class="campo"><span>Base</span><p>' + (a.base ? esc(a.base.direccion) : '<em>Sin cargar</em>') + '</p>' +
-      '<button class="btn btn-sec" id="aj-base">' + (a.base ? 'Cambiar base' : 'Cargar base') + '</button></div>' +
+      (usuario ? '<div class="campo"><span>Usuario</span><p>' + esc(usuario.nombre_mostrar) +
+        (usuario.sucursal ? ' · ' + esc(usuario.sucursal.nombre) : '') + '</p>' +
+        (verPanel ? '<a class="btn btn-sec" href="panel.html">Ir al panel</a>' : '') +
+        '<button class="btn btn-borde" id="aj-salir">Cerrar sesión</button></div>' : '') +
+      '<div class="campo"><span>Base</span><p>' + (b ? esc(b.direccion) : '<em>Sin cargar</em>') +
+      (b && b.servidor ? '<br><small class="ayuda">La carga el administrador desde el panel.</small>' : '') + '</p>' +
+      (b && b.servidor ? '' : '<button class="btn btn-sec" id="aj-base">' + (b ? 'Cambiar base' : 'Cargar base') + '</button>') + '</div>' +
       '<label class="campo"><span>Minutos en cada parada</span><input id="aj-min" type="number" min="1" max="30" inputmode="numeric" value="' + a.min_por_parada + '"></label>' +
       '<div class="campo"><span>App para navegar</span><p>' + (app ? (app === 'waze' ? 'Waze' : 'Google Maps') : 'Se pregunta la primera vez') + '</p>' +
       '<button class="btn btn-sec" id="aj-nav">Elegir</button></div>' +
@@ -768,7 +745,12 @@
       '<p class="ayuda centro">Versión ' + CONFIG.VERSION + '</p>' +
       '<button class="btn-link txt-mal" id="aj-borrar">Borrar todos los datos de este celular</button>' +
       '<button class="btn-link" data-cerrar>Cerrar</button>');
-    $('#aj-base').addEventListener('click', editarBase);
+    if ($('#aj-base')) $('#aj-base').addEventListener('click', editarBase);
+    if ($('#aj-salir')) $('#aj-salir').addEventListener('click', function () {
+      var n = Api.pendientes();
+      if (n && !confirm('Hay ' + n + ' cambio(s) que todavía no llegaron al servidor. Si cerrás sesión se pierden. ¿Cerrar igual?')) return;
+      Sesion.salir();
+    });
     $('#aj-nav').addEventListener('click', function () { elegirNav(null); });
     $('#aj-ok').addEventListener('click', function () {
       var m = parseInt($('#aj-min').value, 10);
@@ -786,7 +768,7 @@
   }
 
   function editarBase() {
-    var b = base() || { direccion: '', localidad: '' };
+    var b = Store.ajustes().base || { direccion: '', localidad: '' };
     abrirHoja('<h2>Dirección de la base</h2>' +
       '<form id="f-base" autocomplete="off">' +
       '<label class="campo"><span>Dirección *</span><input id="b-dir" required placeholder="Ej: Av. Triunvirato 4500" value="' + esc(b.direccion_sola || b.direccion) + '"></label>' +
@@ -798,7 +780,7 @@
       e.preventDefault();
       var dir = $('#b-dir').value.trim(), loc = $('#b-loc').value.trim();
       if (!dir) return;
-      abrirUbicador(dir, loc, null, function (g) {
+      Ubicador.abrir(dir, loc, null, function (g) {
         Routing.recordarGeo(dir, loc, g);
         Store.guardarAjustes({ base: {
           direccion: dir + (loc ? ', ' + loc : ''), direccion_sola: dir, localidad: loc, lat: g.lat, lng: g.lng,
@@ -817,27 +799,4 @@
     });
   }
 
-  // ── Hoja inferior ──────────────────────────────────────────────────────
-  function abrirHoja(html, alta) {
-    var h = $('#hoja');
-    h.innerHTML = '<div class="hoja-asa"></div>' + html;
-    h.classList.toggle('hoja-alta', !!alta);
-    h.hidden = false;
-    $('#hoja-fondo').hidden = false;
-    $$('[data-cerrar]', h).forEach(function (b) { b.addEventListener('click', cerrarHoja); });
-    h.scrollTop = 0;
-  }
-
-  function cerrarHoja() {
-    $('#hoja').hidden = true;
-    $('#hoja-fondo').hidden = true;
-    $('#hoja').innerHTML = '';
-  }
-
-  // Botón "atrás" de Android: cierra lo que esté abierto en vez de salir de la app
-  window.addEventListener('popstate', function () {
-    if (!$('#ubicador').hidden) { cerrarUbicador(); history.pushState(null, ''); return; }
-    if (!$('#hoja').hidden) { cerrarHoja(); history.pushState(null, ''); }
-  });
-  history.pushState(null, '');
 })();

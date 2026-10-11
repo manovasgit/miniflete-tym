@@ -1,7 +1,7 @@
 // Reparto TyM — configuración
 // VERSION se muestra en la app. Al cambiar cualquier archivo, subir VERSION y CACHE en sw.js a la par.
 var CONFIG = {
-  VERSION: '1.0.0',
+  VERSION: '2.0.0',
 
   // URL del Apps Script publicado como web app (etapa 2). No es secreta: sin token no devuelve datos.
   API_URL: '',

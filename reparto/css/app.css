@@ -238,3 +238,110 @@ p { margin: 0 0 8px; }
 @keyframes girar { to { transform: rotate(360deg); } }
 
 .pie { text-align: center; color: #999; font-size: .78rem; padding: 8px 0 20px; }
+
+/* ══ Etapa 2: login, envío al servidor y panel ═══════════════════════ */
+
+/* Indicador de envío */
+.chip-sync {
+  margin-left: auto; padding: 4px 10px; border-radius: 999px; font-size: .78rem; font-weight: 700;
+  background: rgba(255, 255, 255, .15); color: #fff; white-space: nowrap;
+}
+.chip-sync.sync-ok { background: rgba(255, 255, 255, .15); }
+.chip-sync.sync-pend { background: #fff4d6; color: var(--amarillo); }
+.chip-sync.sync-mal { background: #fff; color: var(--mal); }
+
+/* Login */
+.login {
+  position: fixed; inset: 0; z-index: 990; overflow-y: auto;
+  background: linear-gradient(160deg, var(--rojo-osc), #5a0000);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: calc(40px + env(safe-area-inset-top)) 16px 24px;
+}
+.login-caja { background: #fff; border-radius: 20px; padding: 24px 20px; width: 100%; max-width: 400px; box-shadow: 0 10px 40px rgba(0, 0, 0, .3); }
+.login-caja h1 { text-align: center; font-size: 1.4rem; margin: 8px 0 18px; color: var(--rojo-osc); }
+.login-logo { display: block; width: 72px; height: 72px; margin: 0 auto; border-radius: 16px; }
+.login .campo input { font-size: 1.2rem; }
+#l-pin { letter-spacing: .3em; }
+
+/* Panel */
+.es-panel .vista-panel { max-width: 1100px; }
+.btn-icono-osc {
+  width: 44px; height: 44px; border: 2px solid var(--borde); border-radius: 50%;
+  background: #fff; color: var(--texto); font-size: 1.4rem; line-height: 1; cursor: pointer; flex: none;
+}
+.btn-chip {
+  border: 2px solid var(--rojo); background: #fff; color: var(--rojo-osc); border-radius: 999px;
+  padding: 8px 14px; font: inherit; font-weight: 700; cursor: pointer; min-height: 44px;
+}
+.p-tabs {
+  display: flex; gap: 4px; overflow-x: auto; background: var(--rojo-osc); padding: 0 12px;
+  position: sticky; top: 56px; z-index: 400;
+}
+.p-tabs button {
+  border: 0; background: transparent; color: rgba(255, 255, 255, .75); font: inherit; font-weight: 700;
+  padding: 12px 14px; border-bottom: 3px solid transparent; white-space: nowrap; cursor: pointer; min-height: 46px;
+}
+.p-tabs button.activa { color: #fff; border-bottom-color: #fff; }
+.p-barra-fecha {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  max-width: 1100px; margin: 0 auto; padding: 12px 12px 0;
+}
+.p-barra-fecha input[type=date], .p-barra-fecha input[type=month], .p-select, .campo select {
+  font: inherit; font-size: 1rem; padding: 9px 10px; border: 2px solid var(--borde); border-radius: 10px;
+  background: #fff; color: var(--texto); min-height: 44px;
+}
+.campo select { width: 100%; }
+#p-actualizado { margin-left: auto; font-size: .82rem; }
+.p-titulo { margin: 8px 0 12px; text-transform: none; }
+.p-titulo::first-letter { text-transform: uppercase; }
+.p-tiras { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.p-tira { background: #fff; border-radius: 12px; padding: 10px 12px; box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+.p-tira b { display: block; font-size: 1.5rem; line-height: 1.1; }
+.p-tira span { color: var(--texto-2); font-size: .85rem; }
+.p-tira.p-ok b, td.p-ok { color: var(--ok); }
+.p-tira.p-mal b, td.p-mal { color: var(--mal); }
+.p-suc { margin: 18px 0 8px; color: var(--rojo-osc); text-transform: uppercase; letter-spacing: .03em; font-size: .95rem; }
+.p-sin { margin: 0 0 10px; }
+
+.p-tabla-envuelta { overflow-x: auto; margin-bottom: 14px; background: #fff; border-radius: 12px; box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+.p-tabla { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.p-tabla th, .p-tabla td { padding: 9px 10px; text-align: left; border-bottom: 1px solid #eee; white-space: nowrap; }
+.p-tabla th { font-size: .78rem; text-transform: uppercase; color: var(--texto-2); background: #faf9f8; }
+.p-tabla td:nth-child(n+3) { font-variant-numeric: tabular-nums; }
+.p-tabla .p-vacia td { color: var(--texto-2); }
+.p-tabla .p-subtotal td { font-weight: 700; background: #faf9f8; }
+.p-tabla .p-dia-ini td { border-top: 2px solid #e4e1df; }
+.p-ir-dia { color: var(--rojo-osc); font-weight: 700; }
+
+.p-reparto { padding: 0; }
+.p-reparto > summary { list-style: none; cursor: pointer; padding: 14px 16px; }
+.p-reparto > summary::-webkit-details-marker { display: none; }
+.p-reparto > summary::after { content: 'Ver paradas ▾'; display: block; margin-top: 8px; font-size: .85rem; font-weight: 700; color: var(--rojo-osc); }
+.p-reparto[open] > summary::after { content: 'Ocultar paradas ▴'; }
+.p-rep-cab { display: flex; align-items: center; gap: 10px; justify-content: space-between; font-size: 1.05rem; }
+.p-rep-sub { color: var(--texto-2); font-size: .9rem; margin: 2px 0 8px; }
+.chip-r-armado { background: #eee; }
+.chip-r-en_curso { background: var(--azul-fondo); color: var(--azul); }
+.chip-r-finalizado { background: var(--ok-fondo); color: var(--ok); }
+.p-paradas { list-style: none; margin: 0; padding: 0 12px 12px; }
+.p-parada { display: flex; gap: 10px; align-items: flex-start; padding: 10px 4px; border-top: 1px solid #eee; }
+.p-parada .hora { font-weight: 700; color: var(--texto-2); font-size: .9rem; }
+
+.p-admin { margin-bottom: 22px; }
+.p-admin-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; }
+.p-admin-cab h2 { margin: 0; }
+.p-admin-cab .btn { width: auto; margin: 0; padding: 8px 14px; }
+.p-admin-fila { display: flex; align-items: center; gap: 8px; }
+.p-lista { list-style: none; margin: 8px 0; padding: 0; }
+.p-lista li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid #eee; }
+.p-lista.tarjeta li:first-child { border-top: 0; }
+.btn-mini { width: auto; margin: 0 0 0 auto; padding: 8px 4px; flex: none; }
+.inactivo { opacity: .5; }
+.chip-rol { background: #f3e3e1; color: var(--rojo-osc); }
+.chk { display: flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 600; cursor: pointer; }
+.chk input { width: 22px; height: 22px; accent-color: var(--rojo); }
+.chk-grupo { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 12px; }
+
+@media (min-width: 900px) {
+  .es-panel .hoja { left: 50%; right: auto; bottom: auto; top: 50%; transform: translate(-50%, -50%); width: 560px; border-radius: 20px; animation: none; }
+}

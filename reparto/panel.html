@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#8b0000">
+<meta name="description" content="Panel de seguimiento de repartos – Miniflete TyM">
+<meta name="robots" content="noindex">
+<title>Panel – Reparto TyM</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body class="es-panel">
+
+<header class="barra">
+  <div class="barra-titulo">
+    <strong>Panel TyM</strong>
+    <span id="p-quien" class="chip" hidden></span>
+  </div>
+  <button id="p-menu" class="btn-icono" aria-label="Menú" hidden>☰</button>
+</header>
+
+<nav id="p-tabs" class="p-tabs" hidden></nav>
+
+<section id="p-barra-fecha" class="p-barra-fecha" hidden>
+  <button class="btn-icono-osc" id="p-ant" aria-label="Día anterior">‹</button>
+  <input type="date" id="p-fecha" aria-label="Fecha">
+  <button class="btn-icono-osc" id="p-sig" aria-label="Día siguiente">›</button>
+  <button class="btn-chip" id="p-hoy">Hoy</button>
+  <select id="p-cliente" class="p-select" hidden aria-label="Cliente"></select>
+  <span id="p-actualizado" class="ayuda"></span>
+</section>
+
+<section id="p-barra-mes" class="p-barra-fecha" hidden>
+  <button class="btn-icono-osc" id="p-mes-ant" aria-label="Mes anterior">‹</button>
+  <input type="month" id="p-mes" aria-label="Mes">
+  <button class="btn-icono-osc" id="p-mes-sig" aria-label="Mes siguiente">›</button>
+  <select id="p-cliente-mes" class="p-select" hidden aria-label="Cliente"></select>
+</section>
+
+<main id="p-vista" class="vista vista-panel"></main>
+
+<div id="hoja-fondo" class="hoja-fondo" hidden></div>
+<section id="hoja" class="hoja" role="dialog" aria-modal="true" hidden></section>
+
+<section id="ubicador" class="ubicador" role="dialog" aria-modal="true" hidden>
+  <header class="barra">
+    <button id="ubi-volver" class="btn-icono" aria-label="Volver">←</button>
+    <div class="barra-titulo"><strong>Confirmá la ubicación</strong></div>
+    <span></span>
+  </header>
+  <div id="ubi-mapa" class="mapa ubi-mapa"></div>
+  <div class="ubi-pie">
+    <p id="ubi-ayuda" class="ayuda">Tocá o arrastrá el pin para corregir.</p>
+    <div id="ubi-lista" class="ubi-lista"></div>
+    <button id="ubi-mas" class="btn btn-sec btn-chico">Buscar más opciones</button>
+    <button id="ubi-ok" class="btn btn-pri">Confirmar ubicación</button>
+  </div>
+</section>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<footer class="pie">Reparto TyM · v<span id="version"></span></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/util.js"></script>
+<script src="js/store.js"></script>
+<script src="js/routing.js"></script>
+<script src="js/mapa.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/api.js"></script>
+<script src="js/sesion.js"></script>
+<script src="js/admin.js"></script>
+<script src="js/panel.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function () {});
+    });
+  }
+</script>
+</body>
+</html>
