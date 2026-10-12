@@ -13,7 +13,7 @@
  */
 
 var TZ = 'America/Argentina/Buenos_Aires';
-var VERSION_API = '2.1.0';
+var VERSION_API = '3.0.0';
 var DIAS_SESION_CHOFER = 30;
 var DIAS_SESION_PANEL = 7;
 var MAX_INTENTOS = 5;
@@ -42,6 +42,8 @@ var HOJAS = {
     'hora_realizado', 'hora_no_realizado', 'hora_cancelado',
     'creado_por', 'actualizado_ts'],
   Sesiones: ['token_hash', 'usuario_id', 'creado', 'expira', 'ultimo_uso', 'dispositivo'],
+  // Celulares que aceptaron notificaciones push (etapa 3)
+  Dispositivos: ['token', 'usuario_id', 'creado', 'actualizado', 'agente'],
 };
 
 var NUMEROS = ['lat', 'lng', 'orden', 'km_estimados', 'min_estimados', 'total_paradas', 'entregadas',
@@ -91,7 +93,7 @@ var ACCIONES = {
   'login':               { publica: true, escribe: true, fn: accLogin },
   'logout':              { escribe: true, fn: accLogout },
   'yo':                  { fn: accYo },
-  'sync':                { escribe: true, roles: ['repartidor'], fn: accSync },
+  'sync':                { escribe: true, roles: ['repartidor', 'fletero'], fn: accSync },
   'mis.repartos':        { roles: ['repartidor'], fn: accMisRepartos },
   'panel.dia':           { roles: ['admin', 'duenio', 'sucursal'], fn: accPanelDia },
   'panel.mes':           { roles: ['admin', 'duenio'], fn: accPanelMes },
@@ -99,6 +101,13 @@ var ACCIONES = {
   'admin.usuario':       { escribe: true, roles: ['admin'], fn: accAdminUsuario },
   'admin.cliente':       { escribe: true, roles: ['admin'], fn: accAdminCliente },
   'admin.sucursal':      { escribe: true, roles: ['admin'], fn: accAdminSucursal },
+  'fletes.mios':         { roles: ['fletero'], fn: accFletesMios },
+  'fleteros':            { roles: ['admin'], fn: accFleteros },
+  'admin.fletes':        { roles: ['admin'], fn: accAdminFletes },
+  'admin.flete':         { escribe: true, roles: ['admin'], fn: accAdminFlete },
+  'unidades.asignar':    { escribe: true, roles: ['admin'], fn: accUnidadesAsignar },
+  'unidades.estados':    { roles: ['admin'], fn: accUnidadesEstados },
+  'push.registrar':      { escribe: true, fn: accPushRegistrar },
 };
 
 // Separado de doPost para poder probarlo y para la verificación por rol
@@ -467,7 +476,13 @@ function accSync(ctx, d) {
   var tocados = {};
   var repartos = Array.isArray(d.repartos) ? d.repartos.slice(0, 50) : [];
   var paradas = Array.isArray(d.paradas) ? d.paradas.slice(0, 400) : [];
+  var fletes = Array.isArray(d.fletes) ? d.fletes.slice(0, 100) : [];
   var tR = db.t('Repartos'), tP = db.t('Paradas');
+  if (!tiene(u, 'repartidor')) {
+    repartos.concat(paradas).forEach(function (x) { rechazados.push({ id: texto(x && x.id, 80), error: 'No sos repartidor' }); });
+    repartos = []; paradas = [];
+  }
+  syncFletes(db, u, fletes, aplicados, ignorados, rechazados);
 
   repartos.forEach(function (x) {
     var id = texto(x && x.id, 80);
@@ -760,6 +775,322 @@ function accAdminSucursal(ctx, d) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// Fletes (etapa 3)
+// Los crea y asigna el admin (desde el panel o desde Unidades). El fletero solo ve los suyos
+// y solo puede cambiar el estado. Nunca aparecen en los paneles de los clientes.
+// ════════════════════════════════════════════════════════════════════════
+
+var ESTADOS_FLETE = ['asignado', 'en_camino', 'cargando', 'en_viaje', 'realizado', 'no_realizado', 'cancelado'];
+var ESTADOS_FLETE_CHOFER = ['asignado', 'en_camino', 'cargando', 'en_viaje', 'realizado', 'no_realizado'];
+var CAMPOS_FLETE_CHOFER = ['estado', 'motivo', 'hora_en_camino', 'hora_cargando', 'hora_en_viaje',
+  'hora_realizado', 'hora_no_realizado', 'actualizado_ts'];
+var CAMPOS_FLETE_VISIBLES = ['id', 'fletero_id', 'cliente', 'telefono', 'dir_retiro', 'loc_retiro', 'lat_retiro', 'lng_retiro',
+  'dir_entrega', 'loc_entrega', 'lat_entrega', 'lng_entrega', 'fecha', 'hora', 'nota', 'estado', 'motivo',
+  'hora_asignado', 'hora_en_camino', 'hora_cargando', 'hora_en_viaje', 'hora_realizado', 'hora_no_realizado',
+  'hora_cancelado', 'actualizado_ts'];
+
+function fleteroValido(db, id) {
+  var f = id ? db.t('Usuarios').buscar(id) : null;
+  if (!f || !f.activo || !tiene(f, 'fletero')) throw new Falla('Elegí un fletero activo');
+  return f;
+}
+
+function fletePublico(db, f, conAdmin) {
+  var o = tomar(f, CAMPOS_FLETE_VISIBLES);
+  var u = db.t('Usuarios').buscar(f.fletero_id);
+  o.fletero = u ? (u.nombre_mostrar || u.nombre) : '';
+  if (conAdmin) { o.origen = f.origen; o.unidades_job_id = f.unidades_job_id; }
+  return o;
+}
+
+// Lo que el fletero ve: sus fletes sin terminar, más los de los últimos 2 días (para el historial
+// y para que se entere si se lo cancelaron)
+function accFletesMios(ctx) {
+  var db = ctx.db, u = ctx.usuario;
+  var desde = Utilities.formatDate(new Date(Date.now() - 2 * 86400000), TZ, 'yyyy-MM-dd');
+  var abiertos = ['asignado', 'en_camino', 'cargando', 'en_viaje'];
+  var lista = db.t('Fletes').filtrar(function (f) {
+    return f.fletero_id === u.id && (abiertos.indexOf(f.estado) >= 0 || f.fecha >= desde);
+  });
+  return { fletes: lista.map(function (f) { return fletePublico(db, f, false); }) };
+}
+
+// Cambios de estado que manda el fletero (por la cola, igual que las paradas)
+function syncFletes(db, u, lista, aplicados, ignorados, rechazados) {
+  var t = db.t('Fletes');
+  lista.forEach(function (x) {
+    var id = texto(x && x.id, 80);
+    try {
+      if (!tiene(u, 'fletero')) throw new Falla('No sos fletero', 'permiso');
+      var viejo = t.buscar(id);
+      if (!viejo) throw new Falla('Flete inexistente');
+      if (viejo.fletero_id !== u.id) throw new Falla('El flete no es tuyo', 'permiso');
+      if (viejo.estado === 'cancelado') throw new Falla('El flete fue cancelado');
+      var nuevo = tomar(x, CAMPOS_FLETE_CHOFER);
+      nuevo.actualizado_ts = Number(nuevo.actualizado_ts) || 0;
+      if (viejo.actualizado_ts > nuevo.actualizado_ts) { ignorados.push(id); return; }
+      exigirUno(nuevo.estado, ESTADOS_FLETE_CHOFER, 'estado');
+      ['hora_en_camino', 'hora_cargando', 'hora_en_viaje', 'hora_realizado', 'hora_no_realizado'].forEach(function (c) {
+        if (!esISO(nuevo[c])) throw new Falla('Hora inválida en ' + c);
+      });
+      nuevo.motivo = texto(nuevo.motivo, 300);
+      t.guardar(Object.assign({}, viejo, nuevo));
+      aplicados.push(id);
+    } catch (err) {
+      rechazados.push({ id: id, error: err.message || String(err) });
+    }
+  });
+}
+
+function accAdminFletes(ctx, d) {
+  var db = ctx.db;
+  var desde = esFecha(d.desde) ? d.desde : hoy();
+  var hasta = esFecha(d.hasta) ? d.hasta : desde;
+  var lista = db.t('Fletes').filtrar(function (f) { return f.fecha >= desde && f.fecha <= hasta; });
+  lista.sort(function (a, b) { return (a.fecha + a.hora).localeCompare(b.fecha + b.hora); });
+  return { fletes: lista.map(function (f) { return fletePublico(db, f, true); }) };
+}
+
+function accFleteros(ctx) {
+  return {
+    fleteros: ctx.db.t('Usuarios').filtrar(function (u) { return u.activo && tiene(u, 'fletero'); })
+      .map(function (u) { return { id: u.id, nombre: u.nombre_mostrar || u.nombre }; }),
+  };
+}
+
+// Crear, editar, reasignar o cancelar (admin)
+function accAdminFlete(ctx, d) {
+  var res = guardarFlete(ctx.db, ctx.usuario, d, 'admin');
+  return { flete: fletePublico(ctx.db, res, true) };
+}
+
+function guardarFlete(db, admin, d, origen) {
+  var t = db.t('Fletes');
+  var viejo = d.id ? t.buscar(d.id) : null;
+  if (d.id && !viejo) throw new Falla('Flete no encontrado');
+  var ahora = ahoraISO();
+  var f = Object.assign({}, viejo || {
+    id: nuevoId('fle'), origen: origen, unidades_job_id: '', estado: 'asignado',
+    hora_asignado: ahora, creado_por: admin.id, motivo: '',
+  });
+  var avisar = null;
+
+  if (d.cancelar === true) {
+    if (!viejo) throw new Falla('Flete no encontrado');
+    if (viejo.estado === 'cancelado') return viejo;
+    f.estado = 'cancelado';
+    f.hora_cancelado = ahora;
+    f.motivo = texto(d.motivo, 300);
+    avisar = { usuario: f.fletero_id, titulo: 'Flete cancelado', cuerpo: (f.cliente || 'Flete') + ' · ' + fechaCorta(f.fecha) + ' ' + (f.hora || '') };
+  } else {
+    var cliente = texto(d.cliente, 120).trim();
+    if (!cliente) throw new Falla('Falta el cliente');
+    if (!texto(d.dir_retiro, 200).trim() || !texto(d.dir_entrega, 200).trim()) throw new Falla('Faltan las direcciones de retiro y entrega');
+    if (!esFecha(d.fecha)) throw new Falla('Fecha inválida');
+    if (d.hora && !/^\d{2}:\d{2}$/.test(String(d.hora))) throw new Falla('Hora inválida');
+    var fletero = fleteroValido(db, d.fletero_id);
+
+    f.cliente = cliente;
+    f.telefono = texto(d.telefono, 40);
+    f.dir_retiro = texto(d.dir_retiro, 200);
+    f.loc_retiro = texto(d.loc_retiro, 100);
+    f.dir_entrega = texto(d.dir_entrega, 200);
+    f.loc_entrega = texto(d.loc_entrega, 100);
+    ['lat_retiro', 'lng_retiro', 'lat_entrega', 'lng_entrega'].forEach(function (c) { f[c] = numOVacio(d[c]); });
+    f.fecha = d.fecha;
+    f.hora = texto(d.hora, 5);
+    f.nota = texto(d.nota, 1000);
+    if (d.unidades_job_id) f.unidades_job_id = texto(d.unidades_job_id, 80);
+
+    var resumen = cliente + ' · ' + fechaCorta(f.fecha) + (f.hora ? ' ' + f.hora : '');
+    if (!viejo || viejo.estado === 'cancelado') {
+      // Nuevo, o uno cancelado que se vuelve a asignar: arranca de cero
+      f.estado = 'asignado';
+      f.hora_asignado = ahora;
+      ['hora_en_camino', 'hora_cargando', 'hora_en_viaje', 'hora_realizado', 'hora_no_realizado', 'hora_cancelado']
+        .forEach(function (c) { f[c] = ''; });
+      f.motivo = '';
+      f.fletero_id = fletero.id;
+      avisar = { usuario: fletero.id, titulo: 'Flete nuevo', cuerpo: resumen };
+    } else if (viejo.fletero_id !== fletero.id) {
+      // Reasignado: el anterior deja de verlo y el nuevo arranca de cero
+      if (viejo.fletero_id) enviarPush(db, viejo.fletero_id, 'Flete reasignado', resumen + ' ya no está a tu cargo', { tipo: 'flete', id: f.id });
+      f.fletero_id = fletero.id;
+      f.estado = 'asignado';
+      f.hora_asignado = ahora;
+      ['hora_en_camino', 'hora_cargando', 'hora_en_viaje', 'hora_realizado', 'hora_no_realizado']
+        .forEach(function (c) { f[c] = ''; });
+      avisar = { usuario: fletero.id, titulo: 'Flete nuevo', cuerpo: resumen };
+    } else {
+      avisar = { usuario: fletero.id, titulo: 'Flete modificado', cuerpo: resumen };
+    }
+  }
+  f.actualizado_ts = Date.now();
+  var guardado = t.guardar(f);
+  if (avisar) enviarPush(db, avisar.usuario, avisar.titulo, avisar.cuerpo, { tipo: 'flete', id: f.id });
+  return guardado;
+}
+
+function fechaCorta(f) {
+  var p = String(f || '').split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] : f;
+}
+
+// ── Enganche con Unidades ─────────────────────────────────────────────────
+// Unidades manda un trabajo; se crea o actualiza el flete con ese ID de Unidades.
+// No se mandan precios ni datos de cobro: el fletero no los necesita.
+function accUnidadesAsignar(ctx, d) {
+  var db = ctx.db;
+  var job = d.job || {};
+  var jobId = texto(job.id, 80);
+  if (!jobId) throw new Falla('Falta el ID del trabajo de Unidades');
+  var existente = db.t('Fletes').filtrar(function (f) { return f.unidades_job_id === jobId; })
+    .sort(function (a, b) { return (b.actualizado_ts || 0) - (a.actualizado_ts || 0); })[0];
+  var nota = [
+    job.inventario ? 'Inventario: ' + job.inventario : '',
+    job.peones ? 'Peones: ' + job.peones : '',
+    job.viaja ? 'Viaja en la unidad: ' + job.viaja : '',
+    job.telefonoEntrega ? 'Tel. entrega: ' + job.telefonoEntrega : '',
+    job.aclaraciones ? 'Aclaraciones: ' + job.aclaraciones : '',
+  ].filter(Boolean).join('\n');
+  var f = guardarFlete(db, ctx.usuario, {
+    id: existente ? existente.id : undefined,
+    unidades_job_id: jobId,
+    cliente: job.nombre, telefono: job.telefono,
+    dir_retiro: job.dirRetiro, loc_retiro: job.locRetiro,
+    dir_entrega: job.dirEntrega, loc_entrega: job.locEntrega,
+    fecha: job.fecha, hora: job.hora, nota: nota,
+    fletero_id: d.fletero_id,
+  }, 'unidades');
+  return { flete: fletePublico(db, f, true) };
+}
+
+// Solo lectura: estado de los fletes de una lista de trabajos de Unidades
+function accUnidadesEstados(ctx, d) {
+  var db = ctx.db;
+  var ids = Array.isArray(d.ids) ? d.ids.slice(0, 200).map(function (x) { return String(x); }) : [];
+  var res = {};
+  db.t('Fletes').filtrar(function (f) { return f.unidades_job_id && ids.indexOf(f.unidades_job_id) >= 0; })
+    .forEach(function (f) {
+      var prev = res[f.unidades_job_id];
+      if (prev && prev.actualizado_ts > f.actualizado_ts) return;
+      var u = db.t('Usuarios').buscar(f.fletero_id);
+      res[f.unidades_job_id] = {
+        flete_id: f.id, estado: f.estado, fletero: u ? (u.nombre_mostrar || u.nombre) : '',
+        hora: f['hora_' + f.estado] || f.hora_asignado, motivo: f.estado === 'no_realizado' ? f.motivo : '',
+        actualizado_ts: f.actualizado_ts,
+      };
+    });
+  return { estados: res };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Notificaciones push (Firebase Cloud Messaging)
+// Apagadas hasta que se cargue la cuenta de servicio de Firebase con el menú
+// "Configurar notificaciones". La clave queda en las propiedades del script, nunca en el código.
+// ════════════════════════════════════════════════════════════════════════
+
+function accPushRegistrar(ctx, d) {
+  var tok = texto(d.token, 400);
+  if (tok.length < 20) throw new Falla('Token inválido');
+  var t = ctx.db.t('Dispositivos');
+  var viejo = t.buscar(tok);
+  t.guardar(Object.assign({}, viejo || { token: tok, creado: ahoraISO() }, {
+    usuario_id: ctx.usuario.id, actualizado: ahoraISO(), agente: texto(d.agente, 120),
+  }));
+  return { activo: !!PropertiesService.getScriptProperties().getProperty('FCM_CUENTA') };
+}
+
+function cuentaFCM() {
+  var raw = PropertiesService.getScriptProperties().getProperty('FCM_CUENTA');
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+function b64url(x) {
+  return Utilities.base64EncodeWebSafe(x).replace(/=+$/, '');
+}
+
+function tokenFCM(cta) {
+  var cache = CacheService.getScriptCache();
+  var t = cache.get('fcm_token');
+  if (t) return t;
+  var ahora = Math.floor(Date.now() / 1000);
+  var cab = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  var cuerpo = b64url(JSON.stringify({
+    iss: cta.client_email, scope: 'https://www.googleapis.com/auth/firebase.messaging',
+    aud: 'https://oauth2.googleapis.com/token', iat: ahora, exp: ahora + 3600,
+  }));
+  var firma = b64url(Utilities.computeRsaSha256Signature(cab + '.' + cuerpo, cta.private_key));
+  var r = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', {
+    method: 'post', muteHttpExceptions: true,
+    payload: { grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: cab + '.' + cuerpo + '.' + firma },
+  });
+  var j = JSON.parse(r.getContentText());
+  if (!j.access_token) throw new Error('FCM: no se pudo obtener el token (' + r.getResponseCode() + ')');
+  cache.put('fcm_token', j.access_token, 3000);
+  return j.access_token;
+}
+
+// Manda una notificación a todos los celulares del usuario. Nunca rompe la acción que la llama.
+function enviarPush(db, usuarioId, titulo, cuerpo, datos) {
+  try {
+    var cta = cuentaFCM();
+    if (!cta || !usuarioId) return 0;
+    var t = db.t('Dispositivos');
+    var dispositivos = t.filtrar(function (x) { return x.usuario_id === usuarioId && x.token; });
+    if (!dispositivos.length) return 0;
+    var acceso = tokenFCM(cta);
+    var url = 'https://fcm.googleapis.com/v1/projects/' + cta.project_id + '/messages:send';
+    var data = Object.assign({ titulo: String(titulo), cuerpo: String(cuerpo) }, datos || {});
+    Object.keys(data).forEach(function (k) { data[k] = String(data[k]); });
+    var pedidos = dispositivos.map(function (x) {
+      return {
+        url: url, method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+        headers: { Authorization: 'Bearer ' + acceso },
+        payload: JSON.stringify({ message: { token: x.token, data: data, webpush: { headers: { Urgency: 'high', TTL: '86400' } } } }),
+      };
+    });
+    var resps = UrlFetchApp.fetchAll(pedidos);
+    var ok = 0;
+    resps.forEach(function (r, i) {
+      var c = r.getResponseCode();
+      if (c === 200) ok++;
+      // Celular que desinstaló la app o revocó el permiso: se lo saca de la lista
+      else if (c === 404 || (c === 400 && /UNREGISTERED|INVALID_ARGUMENT/.test(r.getContentText()))) {
+        var d = dispositivos[i];
+        d.token = '';
+        d.usuario_id = '';
+        t.guardar(d);
+      }
+    });
+    return ok;
+  } catch (err) {
+    console.error('Push: ' + (err && err.message));
+    return 0;
+  }
+}
+
+function menuConfigurarPush() {
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.prompt('Notificaciones push',
+    'Pegá el contenido COMPLETO del archivo .json de la cuenta de servicio de Firebase\n(Configuración del proyecto → Cuentas de servicio → Generar nueva clave privada):',
+    ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var j;
+  try { j = JSON.parse(r.getResponseText()); } catch (e) { ui.alert('Eso no es un JSON válido. Copiá el archivo entero, desde la primera { hasta la última }.'); return; }
+  if (!j.project_id || !j.client_email || !j.private_key) { ui.alert('El archivo no parece una cuenta de servicio de Firebase (faltan project_id, client_email o private_key).'); return; }
+  PropertiesService.getScriptProperties().setProperty('FCM_CUENTA', JSON.stringify({ project_id: j.project_id, client_email: j.client_email, private_key: j.private_key }));
+  CacheService.getScriptCache().remove('fcm_token');
+  try {
+    tokenFCM(cuentaFCM());
+    ui.alert('Listo: notificaciones activadas para el proyecto ' + j.project_id + '.');
+  } catch (e) {
+    ui.alert('Se guardó, pero Google no aceptó la clave: ' + e.message);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // Menú de la planilla
 // ════════════════════════════════════════════════════════════════════════
 
@@ -769,6 +1100,7 @@ function onOpen() {
     .addItem('Cambiar PIN de un usuario', 'menuCambiarPin')
     .addItem('Verificar accesos por rol', 'verificarAccesos')
     .addItem('Limpiar sesiones vencidas', 'menuLimpiarSesiones')
+    .addItem('Configurar notificaciones push', 'menuConfigurarPush')
     .addToUi();
 }
 
@@ -783,7 +1115,7 @@ function inicializar() {
     sh.getRange(1, 1, sh.getMaxRows(), cols.length).setNumberFormat('@');
     sh.getRange(1, 1, 1, cols.length).setValues([cols]).setFontWeight('bold');
     sh.setFrozenRows(1);
-    if (nombre === 'Sesiones') sh.hideSheet();
+    if (nombre === 'Sesiones' || nombre === 'Dispositivos') sh.hideSheet();
   });
   var hoja1 = ss.getSheetByName('Hoja 1') || ss.getSheetByName('Sheet1');
   if (hoja1 && hoja1.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(hoja1);
@@ -900,6 +1232,7 @@ function correrVerificacion() {
   function llamar(token, accion, datos) {
     return manejar({ accion: accion, token: token, datos: datos || {} });
   }
+  function sinSecretosF(res) { return !/pin_hash|pin_salt|token_hash|unidades_job_id|creado_por/.test(JSON.stringify(res)); }
   function sinSecretos(res) {
     var s = JSON.stringify(res);
     return !/pin_hash|pin_salt|token_hash/.test(s) && !/"fletero_id"|"unidades_job_id"/.test(s);
@@ -914,7 +1247,7 @@ function correrVerificacion() {
   listaFechas.forEach(function (f) { meses[f.slice(0, 7)] = true; });
 
   // Sin token y con token inventado: nada
-  ['panel.dia', 'admin.datos', 'mis.repartos', 'sync'].forEach(function (a) {
+  ['panel.dia', 'admin.datos', 'mis.repartos', 'sync', 'fletes.mios', 'admin.fletes', 'unidades.estados'].forEach(function (a) {
     var r = manejar({ accion: a, token: '', datos: {} });
     anotar(!r.ok && r.codigo === 'auth', 'sin sesión', null, a, r.ok ? 'respondió datos' : 'rechazado');
     var r2 = manejar({ accion: a, token: 'x'.repeat(64), datos: {} });
@@ -998,6 +1331,28 @@ function correrVerificacion() {
         mr.ok ? mr.repartos.length + ' repartos propios' + (ajenos.length + pAjenas.length ? ' · DATOS AJENOS' : '') : mr.error);
     });
 
+    // Fletes: el fletero ve solo los suyos; nadie más que el admin ve los de todos
+    var fm = llamar(tk, 'fletes.mios', {});
+    if (tiene(u, 'fletero')) {
+      var ajenosF = (fm.fletes || []).filter(function (x) { return x.fletero_id !== u.id; });
+      anotar(fm.ok && !ajenosF.length && sinSecretosF(fm), rol, u, 'fletes.mios',
+        fm.ok ? fm.fletes.length + ' fletes propios' + (ajenosF.length ? ' · ' + ajenosF.length + ' AJENOS' : '') : fm.error);
+    } else {
+      anotar(!fm.ok && fm.codigo === 'permiso', rol, u, 'fletes.mios', fm.ok ? 'recibió fletes' : 'rechazado');
+    }
+    ['admin.fletes', 'unidades.estados', 'fleteros'].forEach(function (a) {
+      var r = llamar(tk, a, { ids: [] });
+      if (esAdmin) anotar(r.ok, rol, u, a, r.ok ? 'ok' : r.error);
+      else anotar(!r.ok && r.codigo === 'permiso', rol, u, a, r.ok ? 'recibió datos de fletes' : 'rechazado');
+    });
+    if (tiene(u, 'fletero')) {
+      var fAjeno = db.t('Fletes').filtrar(function (x) { return x.fletero_id && x.fletero_id !== u.id; })[0];
+      if (fAjeno) {
+        var sf = llamar(tk, 'sync', { fletes: [{ id: fAjeno.id, estado: 'realizado', actualizado_ts: Date.now() + 1e9 }] });
+        anotar(sf.ok && sf.rechazados.length === 1 && !sf.aplicados.length, rol, u, 'sync flete ajeno', sf.ok ? (sf.rechazados.length ? 'rechazado' : 'APLICADO') : sf.error);
+      }
+    }
+
     // sync sobre un reparto ajeno: tiene que rechazarse
     if (tiene(u, 'repartidor')) {
       var ajeno = db.t('Repartos').filtrar(function (x) { return x.repartidor_id && x.repartidor_id !== u.id; })[0];
@@ -1005,9 +1360,15 @@ function correrVerificacion() {
         var s = llamar(tk, 'sync', { repartos: [{ id: ajeno.id, fecha: ajeno.fecha, estado: ajeno.estado, actualizado_ts: Date.now() + 1e9 }] });
         anotar(s.ok && s.rechazados.length === 1 && !s.aplicados.length, rol, u, 'sync reparto ajeno', s.ok ? (s.rechazados.length ? 'rechazado' : 'APLICADO') : s.error);
       }
-    } else {
+    } else if (!tiene(u, 'fletero')) {
       var s2 = llamar(tk, 'sync', { repartos: [] });
       anotar(!s2.ok && s2.codigo === 'permiso', rol, u, 'sync', s2.ok ? 'aceptado' : 'rechazado');
+    } else {
+      var rAj = db.t('Repartos').filtrar(function (x) { return x.repartidor_id; })[0];
+      if (rAj) {
+        var s3 = llamar(tk, 'sync', { repartos: [{ id: rAj.id, fecha: rAj.fecha, estado: 'finalizado', actualizado_ts: Date.now() + 1e9 }] });
+        anotar(s3.ok && s3.rechazados.length === 1 && !s3.aplicados.length, rol, u, 'sync reparto (siendo fletero)', s3.ok ? (s3.rechazados.length ? 'rechazado' : 'APLICADO') : s3.error);
+      }
     }
   });
 
