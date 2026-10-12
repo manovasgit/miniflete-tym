@@ -2,7 +2,7 @@
   "name": "Reparto TyM",
   "short_name": "Reparto",
   "description": "Repartos y fletes – Miniflete TyM",
-  "id": "/miniflete-tym/reparto/",
+  "id": "/miniflete-tym/reparto/app",
   "start_url": "/miniflete-tym/reparto/",
   "scope": "/miniflete-tym/reparto/",
   "display": "standalone",
