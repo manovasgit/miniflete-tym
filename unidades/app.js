@@ -105,6 +105,7 @@
       case 'agenda':
         main.innerHTML = buildAgenda();
         bindAgenda(main);
+        try { if (window.RepartoLink) RepartoLink.agenda(main); } catch (e) { /* Reparto TyM nunca frena a Unidades */ }
         break;
       case 'nuevo':
         main.innerHTML = buildForm(null);
@@ -137,6 +138,7 @@
       case 'detalle':
         oc.innerHTML = buildDetalle();
         bindDetalle(oc);
+        try { if (window.RepartoLink) RepartoLink.detalle(oc, S.selId, S.ovPage); } catch (e) { /* Reparto TyM nunca frena a Unidades */ }
         break;
       case 'comanda':
         oc.innerHTML = buildComanda();
