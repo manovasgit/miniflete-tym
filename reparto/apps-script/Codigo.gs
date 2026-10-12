@@ -13,7 +13,7 @@
  */
 
 var TZ = 'America/Argentina/Buenos_Aires';
-var VERSION_API = '2.0.0';
+var VERSION_API = '2.1.0';
 var DIAS_SESION_CHOFER = 30;
 var DIAS_SESION_PANEL = 7;
 var MAX_INTENTOS = 5;
@@ -52,7 +52,8 @@ var BOOLEANOS = ['activo', 'eliminada', 'eliminado', 'aviso_horario'];
 var ROLES = ['admin', 'repartidor', 'fletero', 'sucursal', 'duenio'];
 var ESTADOS_REPARTO = ['armado', 'en_curso', 'finalizado'];
 var ESTADOS_PARADA = ['pendiente', 'en_camino', 'entregado', 'no_entregado'];
-var PAGOS = ['efectivo', 'transferencia', 'cta_cte', 'otro'];
+// cta_cte y otro quedan aceptados por las paradas cargadas antes de la v2.1 (la app ya no los ofrece)
+var PAGOS = ['efectivo', 'debito', 'credito', 'transferencia', 'cta_cte', 'otro'];
 var PRIORIDADES = ['normal', 'urgente', 'hora'];
 var MOTIVOS = ['', 'ausente', 'dir_incorrecta', 'rechazo', 'otro'];
 
