@@ -35,14 +35,24 @@
   function arrancar(u) {
     usuario = u;
     if (u.roles.indexOf('repartidor') < 0) { renderSinReparto(); return; }
-    // Si el celular tiene un reparto de otro usuario (celular compartido), no se mezcla
+    Api.iniciarCola();
+    Api.alEstado(pintarSync);
     var r = Store.reparto();
-    if (r && r.repartidor_id && r.repartidor_id !== u.id) {
+    if (r && !r.repartidor_id) {
+      // Reparto de la versión sin login (pruebas): no es de nadie, no se le asigna a quien entra.
+      // Si llegó a mandarse al servidor, se marca eliminado para que no aparezca en los paneles.
+      descartar(r);
+      U.toast('Se descartó un reparto de prueba que había quedado en el celular', 4000);
+    } else if (r && r.repartidor_id !== u.id) {
+      // Reparto de otro usuario (celular compartido): no se mezcla
       Store.borrar('actual');
       Store.borrar('cola');
     }
-    Api.iniciarCola();
-    Api.alEstado(pintarSync);
+    // El resumen del "último reparto" tampoco puede ser de la versión de prueba ni de otro usuario
+    var hist = Store.historial();
+    var propio = hist.filter(function (x) { return x.repartidor_id === u.id; });
+    if (propio.length !== hist.length) Store.escribir('historial', propio);
+    ultimoFinalizado = propio[0] && propio[0].fecha === U.hoy() ? propio[0] : null;
     render();
     // En segundo plano: datos frescos del usuario (la base la puede haber cambiado el admin)
     // y, si el celular perdió el reparto del día, se recupera del servidor
@@ -55,13 +65,24 @@
   function recuperarDelServidor() {
     return Api.llamar('mis.repartos', { fecha: U.hoy() }).then(function (res) {
       if (!res.ok || Store.reparto()) return;
-      var abierto = res.repartos.filter(function (r) { return r.estado !== 'finalizado'; })[0];
+      var fuera = Store.leer('descartados', []);
+      var abierto = res.repartos.filter(function (r) { return r.estado !== 'finalizado' && fuera.indexOf(r.id) < 0; })[0];
       if (!abierto) return;
       var r = Object.assign({}, abierto, { paradas: [], geometria: null, ruta_vieja: true });
       r.paradas = res.paradas.filter(function (p) { return p.reparto_id === r.id; });
       Store.escribir('actual', r);
       U.toast('Se recuperó tu reparto de hoy del servidor');
     }).catch(function () { /* sin señal: se sigue con lo local */ });
+  }
+
+  // Saca el reparto del celular. Si ya se había mandado al servidor, se manda marcado como
+  // eliminado (no aparece en paneles ni se vuelve a "recuperar").
+  function descartar(r) {
+    var fuera = Store.leer('descartados', []);
+    fuera.push(r.id);
+    Store.escribir('descartados', fuera.slice(-20));
+    if (r.hora_armado) { r.eliminado = true; Store.guardarReparto(r); }
+    Store.borrar('actual');
   }
 
   // Usuarios sin rol de repartidor (fletero, sucursal, dueño, admin solo)
@@ -321,9 +342,7 @@
     var bd = $('#btn-descartar');
     if (bd) bd.addEventListener('click', function () {
       if (!confirm('¿Descartar el reparto y todas sus paradas?')) return;
-      // Si ya se había mandado al servidor, se marca como eliminado para que no aparezca en los paneles
-      if (r.hora_armado) { r.eliminado = true; Store.guardarReparto(r); }
-      Store.borrar('actual');
+      descartar(r);
       render();
     });
 
