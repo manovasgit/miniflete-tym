@@ -51,10 +51,10 @@
       return;
     }
 
-    var tabs = st.rol === 'admin' ? ['dia', 'mes', 'admin'] : st.rol === 'duenio' ? ['dia', 'mes'] : ['dia'];
+    var tabs = st.rol === 'admin' ? ['dia', 'fletes', 'mes', 'admin'] : st.rol === 'duenio' ? ['dia', 'mes'] : ['dia'];
     var guardada = Store.leer('panel_tab', 'dia');
     st.tab = tabs.indexOf(guardada) >= 0 ? guardada : 'dia';
-    var nombres = { dia: 'Día', mes: 'Resumen del mes', admin: 'Administración' };
+    var nombres = { dia: 'Día', fletes: 'Fletes', mes: 'Mes', admin: 'Administración' };
     if (tabs.length > 1) {
       $('#p-tabs').innerHTML = tabs.map(function (t) { return '<button data-t="' + t + '">' + nombres[t] + '</button>'; }).join('');
       $('#p-tabs').hidden = false;
@@ -65,10 +65,10 @@
 
     // Barra de fecha
     $('#p-fecha').value = st.fecha;
-    $('#p-fecha').addEventListener('change', function () { if ($('#p-fecha').value) { st.fecha = $('#p-fecha').value; cargarDia(true); } });
+    $('#p-fecha').addEventListener('change', function () { if ($('#p-fecha').value) { st.fecha = $('#p-fecha').value; cargarFecha(true); } });
     $('#p-ant').addEventListener('click', function () { moverDia(-1); });
     $('#p-sig').addEventListener('click', function () { moverDia(1); });
-    $('#p-hoy').addEventListener('click', function () { st.fecha = U.hoy(); $('#p-fecha').value = st.fecha; cargarDia(true); });
+    $('#p-hoy').addEventListener('click', function () { st.fecha = U.hoy(); $('#p-fecha').value = st.fecha; cargarFecha(true); });
     $('#p-mes').value = st.mes;
     $('#p-mes').addEventListener('change', function () { if ($('#p-mes').value) { st.mes = $('#p-mes').value; cargarMes(true); } });
     $('#p-mes-ant').addEventListener('click', function () { moverMes(-1); });
@@ -88,7 +88,7 @@
           s.addEventListener('change', function () {
             st.cliente = s.value;
             $('#p-cliente').value = $('#p-cliente-mes').value = st.cliente;
-            if (st.tab === 'dia') cargarDia(true); else cargarMes(true);
+            if (st.tab === 'mes') cargarMes(true); else cargarFecha(true);
           });
         });
       });
@@ -103,16 +103,17 @@
     st.tab = t;
     Store.escribir('panel_tab', t);
     $$('#p-tabs button').forEach(function (b) { b.classList.toggle('activa', b.dataset.t === t); });
-    $('#p-barra-fecha').hidden = t !== 'dia';
+    $('#p-barra-fecha').hidden = t !== 'dia' && t !== 'fletes';
+    $('#p-cliente').style.visibility = t === 'fletes' ? 'hidden' : '';
     $('#p-barra-mes').hidden = t !== 'mes';
-    if (t === 'dia') cargarDia(true);
+    if (t === 'dia' || t === 'fletes') cargarFecha(true);
     else if (t === 'mes') cargarMes(true);
     else Admin.mostrar($('#p-vista'));
   }
 
   function refrescoAutomatico() {
     if (document.hidden || Hoja.abierta() || Ubicador.abierto() || st.cargando) return;
-    if (st.tab === 'dia') cargarDia(false);
+    if (st.tab === 'dia' || st.tab === 'fletes') cargarFecha(false);
     else if (st.tab === 'mes') cargarMes(false);
   }
 
@@ -121,7 +122,16 @@
     d.setDate(d.getDate() + n);
     st.fecha = d.toISOString().slice(0, 10);
     $('#p-fecha').value = st.fecha;
-    cargarDia(true);
+    cargarFecha(true);
+  }
+
+  // La barra de fecha sirve para el día de repartos y para los fletes
+  function cargarFecha(conAviso) {
+    if (st.tab === 'fletes') {
+      st.cargando = true;
+      return FletesAdmin.cargar($('#p-vista'), st.fecha, conAviso).finally(function () { st.cargando = false; });
+    }
+    return cargarDia(conAviso);
   }
 
   function moverMes(n) {
@@ -195,6 +205,18 @@
 
     html += '<h2 class="p-titulo">' + (esHoy ? 'Hoy, ' : '') + fechaTxt + '</h2>';
     html += tiras(c, st.rol !== 'sucursal' ? '<div class="p-tira"><b>' + totalReps + '</b><span>repartos</span></div>' : '');
+
+    // Sucursal con varios choferes: una fila por reparto
+    if (st.rol === 'sucursal' && d.repartos.length > 1) {
+      html += '<div class="p-tabla-envuelta"><table class="p-tabla"><thead><tr><th>Repartidor</th><th>Estado</th><th>Inicio</th><th>Fin</th><th>Entreg.</th><th>No ent.</th><th>Pend.</th></tr></thead><tbody>' +
+        d.repartos.slice().sort(function (a, b) { return String(a.hora_inicio || a.hora_armado).localeCompare(String(b.hora_inicio || b.hora_armado)); })
+          .map(function (r) {
+            var cc = contar(d.paradas.filter(function (p) { return p.reparto_id === r.id; }));
+            return '<tr><td>' + esc(r.repartidor) + '</td><td>' + EST_REPARTO[r.estado] + '</td>' +
+              '<td>' + (U.hora(r.hora_inicio) || '—') + '</td><td>' + (U.hora(r.hora_fin) || '—') + '</td>' +
+              '<td class="p-ok">' + cc.ent + '</td><td class="p-mal">' + cc.no + '</td><td>' + cc.pend + '</td></tr>';
+          }).join('') + '</tbody></table></div>';
+    }
 
     // Resumen por sucursal (dueño y admin)
     if (st.rol !== 'sucursal' && d.sucursales.length > 1) {

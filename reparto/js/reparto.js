@@ -23,6 +23,7 @@
   var ultimoFinalizado = null;
   var usuario = null;       // etapa 2: usuario logueado (null si la app corre sin backend)
   var abrirHoja = Hoja.abrir, cerrarHoja = Hoja.cerrar, cargando = Hoja.cargando;
+  var modo = 'reparto';     // 'reparto' | 'fletes' (etapa 3: pestañas si el usuario tiene los dos roles)
 
   // ── Arranque ───────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function () {
@@ -36,9 +37,18 @@
 
   function arrancar(u) {
     usuario = u;
-    if (u.roles.indexOf('repartidor') < 0) { renderSinReparto(); return; }
+    var esRep = u.roles.indexOf('repartidor') >= 0;
+    var esFle = u.roles.indexOf('fletero') >= 0;
+    if (!esRep && !esFle) { renderSinReparto(); return; }
     Api.iniciarCola();
     Api.alEstado(pintarSync);
+    if (window.Push) Push.renovar();
+    if (esFle) {
+      modo = esRep ? Store.leer('modo', 'reparto') : 'fletes';
+      Fletes.iniciar(u, function () { pintarTabs(); if (modo === 'fletes') render(); });
+    }
+    pintarTabs();
+    if (!esRep) { render(); return; }
     var r = Store.reparto();
     if (r && !r.repartidor_id) {
       // Reparto de la versión sin login (pruebas): no es de nadie, no se le asigna a quien entra.
@@ -87,6 +97,27 @@
     Store.borrar('actual');
   }
 
+  // Pestañas Reparto | Fletes, solo para quien tiene los dos roles
+  function pintarTabs() {
+    var nav = $('#tabs-chofer');
+    if (!nav) return;
+    var ambos = usuario && usuario.roles.indexOf('repartidor') >= 0 && usuario.roles.indexOf('fletero') >= 0;
+    nav.hidden = !ambos;
+    if (!ambos) return;
+    var n = Fletes.pendientes();
+    nav.innerHTML = '<button data-m="reparto" class="' + (modo === 'reparto' ? 'activa' : '') + '">Reparto</button>' +
+      '<button data-m="fletes" class="' + (modo === 'fletes' ? 'activa' : '') + '">Fletes' + (n ? ' <span class="badge">' + n + '</span>' : '') + '</button>';
+    $$('button', nav).forEach(function (b) {
+      b.addEventListener('click', function () {
+        modo = b.dataset.m;
+        Store.escribir('modo', modo);
+        pintarTabs();
+        render();
+        if (modo === 'fletes') Fletes.refrescar();
+      });
+    });
+  }
+
   // Usuarios sin rol de repartidor (fletero, sucursal, dueño, admin solo)
   function renderSinReparto() {
     var panel = ['admin', 'duenio', 'sucursal'].some(function (r) { return usuario.roles.indexOf(r) >= 0; });
@@ -113,6 +144,8 @@
     el.title = e.error || '';
     el.hidden = false;
   }
+
+  function esRepartidor() { return !usuario || usuario.roles.indexOf('repartidor') >= 0; }
 
   // La base viene de la sucursal del repartidor (la carga el admin). Si todavía no está, la local.
   function base() {
@@ -156,6 +189,12 @@
 
     if (sortable) { sortable.destroy(); sortable = null; }
     estacionarMapa();
+
+    if (modo === 'fletes') {
+      chip.hidden = true;
+      Fletes.render(v);
+      return;
+    }
 
     if (!base()) {
       chip.hidden = true;
@@ -756,10 +795,12 @@
         (usuario.sucursal ? ' · ' + esc(usuario.sucursal.nombre) : '') + '</p>' +
         (verPanel ? '<a class="btn btn-sec" href="panel.html">Ir al panel</a>' : '') +
         '<button class="btn btn-borde" id="aj-salir">Cerrar sesión</button></div>' : '') +
-      '<div class="campo"><span>Base</span><p>' + (b ? esc(b.direccion) : '<em>Sin cargar</em>') +
+      (esRepartidor() ? '<div class="campo"><span>Base</span><p>' + (b ? esc(b.direccion) : '<em>Sin cargar</em>') +
       (b && b.servidor ? '<br><small class="ayuda">La carga el administrador desde el panel.</small>' : '') + '</p>' +
       (b && b.servidor ? '' : '<button class="btn btn-sec" id="aj-base">' + (b ? 'Cambiar base' : 'Cargar base') + '</button>') + '</div>' +
-      '<label class="campo"><span>Minutos en cada parada</span><input id="aj-min" type="number" min="1" max="30" inputmode="numeric" value="' + a.min_por_parada + '"></label>' +
+      '<label class="campo"><span>Minutos en cada parada</span><input id="aj-min" type="number" min="1" max="30" inputmode="numeric" value="' + a.min_por_parada + '"></label>' : '') +
+      (window.Push && Push.disponible() ? '<div class="campo"><span>Notificaciones</span>' +
+        (Notification.permission === 'granted' ? '<p>🔔 Activadas</p>' : Push.aviso()) + '</div>' : '') +
       '<div class="campo"><span>App para navegar</span><p>' + (app ? (app === 'waze' ? 'Waze' : 'Google Maps') : 'Se pregunta la primera vez') + '</p>' +
       '<button class="btn btn-sec" id="aj-nav">Elegir</button></div>' +
       '<button class="btn btn-pri" id="aj-ok">Guardar</button>' +
@@ -774,8 +815,10 @@
     });
     $('#aj-nav').addEventListener('click', function () { elegirNav(null); });
     $('#aj-ok').addEventListener('click', function () {
-      var m = parseInt($('#aj-min').value, 10);
-      Store.guardarAjustes({ min_por_parada: m >= 1 && m <= 30 ? m : CONFIG.MIN_POR_PARADA });
+      if ($('#aj-min')) {
+        var m = parseInt($('#aj-min').value, 10);
+        Store.guardarAjustes({ min_por_parada: m >= 1 && m <= 30 ? m : CONFIG.MIN_POR_PARADA });
+      }
       cerrarHoja();
       U.toast('Ajustes guardados ✓');
       render();

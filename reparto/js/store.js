@@ -228,7 +228,7 @@ var Store = (function () {
   }
 
   return {
-    leer: leer, escribir: escribir, borrar: borrar, alCambiar: alCambiar,
+    leer: leer, escribir: escribir, borrar: borrar, alCambiar: alCambiar, avisarCambio: emitir,
     ajustes: ajustes, guardarAjustes: guardarAjustes, navApp: navApp, guardarNavApp: guardarNavApp,
     reparto: reparto, nuevoReparto: nuevoReparto, guardarReparto: guardarReparto,
     nuevaParada: nuevaParada, editarParada: editarParada, eliminarParada: eliminarParada,

@@ -440,6 +440,13 @@ var Routing = (function () {
       .catch(function () { return rectas; });
   }
 
+  // Sin coordenadas (fletes cargados desde Unidades): se navega por el texto de la dirección
+  function linkNavegacionTexto(texto, app) {
+    var q = encodeURIComponent(texto + ', Buenos Aires, Argentina');
+    if (app === 'waze') return 'https://waze.com/ul?q=' + q + '&navigate=yes';
+    return 'https://www.google.com/maps/dir/?api=1&destination=' + q + '&travelmode=driving';
+  }
+
   function linkNavegacion(lat, lng, app) {
     var ll = lat.toFixed(6) + ',' + lng.toFixed(6);
     if (app === 'waze') return 'https://waze.com/ul?ll=' + ll + '&navigate=yes';
@@ -449,7 +456,7 @@ var Routing = (function () {
   return {
     geocodificar: geocodificar, geocodificarOSM: geocodificarOSM, recordarGeo: recordarGeo,
     matrizTiempos: matrizTiempos, optimizar: optimizar, geometria: geometria,
-    linkNavegacion: linkNavegacion, enAMBA: enAMBA,
+    linkNavegacion: linkNavegacion, linkNavegacionTexto: linkNavegacionTexto, enAMBA: enAMBA,
     LOCALIDADES: Object.keys(BARRIOS),
   };
 })();

@@ -1,6 +1,6 @@
 // Reparto TyM — service worker
 // Subir la versión ante CUALQUIER cambio (y CONFIG.VERSION en js/config.js a la par).
-const CACHE = 'mtym-reparto-v2.1.0';
+const CACHE = 'mtym-reparto-v3.0.0';
 const PREFIJO = 'mtym-reparto-';
 const ASSETS = [
   './',
@@ -15,10 +15,13 @@ const ASSETS = [
   './js/ui.js',
   './js/api.js',
   './js/sesion.js',
+  './js/push.js',
+  './js/fletes.js',
   './js/reparto.js',
   './panel.html',
   './js/panel.js',
   './js/admin.js',
+  './js/fletes-admin.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
 ];
@@ -75,4 +78,34 @@ self.addEventListener('fetch', e => {
     red.catch(deCache),
     lenta.then(c => c || red),
   ]).then(r => r || red));
+});
+
+// ── Notificaciones push (Firebase manda solo datos; la notificación la arma el service worker) ──
+self.addEventListener('push', e => {
+  let d = {};
+  try { const j = e.data ? e.data.json() : {}; d = j.data || j.notification || j; } catch (err) { /* sin datos */ }
+  const titulo = d.titulo || d.title || 'Reparto TyM';
+  e.waitUntil(self.registration.showNotification(titulo, {
+    body: d.cuerpo || d.body || '',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
+    tag: d.id || 'reparto',
+    renotify: true,
+    vibrate: [200, 100, 200],
+    data: { tipo: d.tipo || '', id: d.id || '' },
+  }));
+});
+
+// Tocar la notificación abre la app (o la trae al frente y le pide que refresque)
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ventanas => {
+    for (const w of ventanas) {
+      if (w.url.includes('/reparto/') && !w.url.includes('panel.html')) {
+        w.postMessage({ tipo: 'refrescar' });
+        return w.focus();
+      }
+    }
+    return self.clients.openWindow('./');
+  }));
 });

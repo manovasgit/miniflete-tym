@@ -62,6 +62,7 @@ var Api = (function () {
     if (!activa() || !token()) return;
     // Mientras el chofer carga paradas no se manda nada: el reparto viaja al armar el recorrido
     if (tipo === 'reparto' && !reg.hora_armado && !reg.eliminado) return;
+    // Los fletes van siempre (ya existen en el servidor: los creó el admin)
     if (tipo === 'parada') {
       var r = Store.reparto();
       if (!r || r.id !== reg.reparto_id || !r.hora_armado) return;
@@ -88,10 +89,11 @@ var Api = (function () {
 
     // Copia de lo que se manda: si mientras viaja algo cambia, eso queda para la próxima
     var enviado = {};
-    var lote = { repartos: [], paradas: [] };
+    var lote = { repartos: [], paradas: [], fletes: [] };
     claves.slice(0, 300).forEach(function (k) {
       enviado[k] = c[k].actualizado_ts;
-      (k.indexOf('reparto:') === 0 ? lote.repartos : lote.paradas).push(c[k]);
+      var tipo = k.slice(0, k.indexOf(':'));
+      (tipo === 'reparto' ? lote.repartos : tipo === 'flete' ? lote.fletes : lote.paradas).push(c[k]);
     });
 
     enviando = true;
@@ -105,7 +107,7 @@ var Api = (function () {
         }
         var listos = res.aplicados.concat(res.ignorados, res.rechazados.map(function (x) { return x.id; }));
         listos.forEach(function (id) {
-          ['reparto:', 'parada:'].forEach(function (p) {
+          ['reparto:', 'parada:', 'flete:'].forEach(function (p) {
             var k = p + id;
             if (c[k] && enviado[k] === c[k].actualizado_ts) delete c[k];
           });

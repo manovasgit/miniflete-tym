@@ -345,3 +345,30 @@ p { margin: 0 0 8px; }
 @media (min-width: 900px) {
   .es-panel .hoja { left: 50%; right: auto; bottom: auto; top: 50%; transform: translate(-50%, -50%); width: 560px; border-radius: 20px; animation: none; }
 }
+
+/* ══ Etapa 3: fletes ═══════════════════════════════════════════════ */
+#tabs-chofer { top: 56px; }
+.badge { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; background: #fff; color: var(--rojo-osc); font-size: .8rem; line-height: 20px; text-align: center; }
+.flete { border-left: 6px solid var(--rojo); }
+.flete.est-fl-realizado { border-left-color: var(--ok); opacity: .8; }
+.flete.est-fl-no_realizado, .flete.est-fl-cancelado { border-left-color: #999; opacity: .75; }
+.fl-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.fl-cuando { font-weight: 800; color: var(--rojo-osc); font-size: 1.05rem; }
+.fl-cliente { font-size: 1.25rem; margin: 6px 0 8px; }
+.fl-tramo { background: #faf9f8; border-radius: 12px; padding: 10px 12px; margin: 8px 0; }
+.fl-tramo-tit { text-transform: uppercase; font-size: .75rem; font-weight: 800; color: var(--texto-2); letter-spacing: .04em; }
+.fl-dir { font-weight: 700; margin: 2px 0 4px; }
+.fl-tramo .btn { margin: 4px 0 0; }
+.fl-tel { margin: 8px 0; font-weight: 600; }
+.btn-mini-link { display: inline-block; margin-left: 8px; padding: 6px 10px; border-radius: 8px; background: var(--azul-fondo); color: var(--azul); font-weight: 700; text-decoration: none; }
+.chip-fl-asignado { background: #eee; }
+.chip-fl-en_camino, .chip-fl-cargando, .chip-fl-en_viaje { background: var(--azul-fondo); color: var(--azul); }
+.chip-fl-realizado { background: var(--ok-fondo); color: var(--ok); }
+.chip-fl-no_realizado, .chip-fl-cancelado { background: var(--mal-fondo); color: var(--mal); }
+.banner-push { display: flex; flex-direction: column; gap: 8px; }
+.banner-push .btn { margin: 0; }
+.fa-tramos { margin: 8px 0; font-size: .95rem; display: grid; gap: 2px; }
+.fa-nota { margin: 6px 0; }
+.fa-horas { font-size: .85rem; color: var(--texto-2); margin-top: 6px; }
+.fa-acciones { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; }
+.fa-acciones .btn-mini { margin: 0; }
