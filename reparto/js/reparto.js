@@ -3,7 +3,9 @@
 (function () {
   var $ = U.$, $$ = U.$$, esc = U.esc;
 
-  var PAGOS = { efectivo: 'Efectivo', transferencia: 'Transferencia', cta_cte: 'Cuenta corriente', otro: 'Otro' };
+  // Medios de pago que se ofrecen al cargar. cta_cte y otro quedan solo para mostrar paradas viejas.
+  var PAGOS_FORM = ['efectivo', 'debito', 'credito', 'transferencia'];
+  var PAGOS = { efectivo: 'Efectivo', debito: 'Débito', credito: 'Crédito', transferencia: 'Transferencia', cta_cte: 'Cuenta corriente', otro: 'Otro' };
   var ESTADOS = { pendiente: 'Pendiente', en_camino: 'En camino', entregado: 'Entregado', no_entregado: 'No entregado' };
   var MOTIVOS = { ausente: 'Ausente', dir_incorrecta: 'Dirección incorrecta', rechazo: 'Rechazó', otro: 'Otro' };
   var EST_REPARTO = { armado: 'Armado', en_curso: 'En curso', finalizado: 'Finalizado' };
@@ -652,7 +654,7 @@
       '<label class="campo"><span>Localidad o barrio</span><input id="f-loc" list="dl-localidades" placeholder="Ej: Belgrano, Morón, Olivos" value="' + esc(d.localidad) + '"></label>' +
       opcionesLocalidad() +
       '<label class="campo"><span>Cliente</span><input id="f-cli" placeholder="Nombre de quien recibe" value="' + esc(d.cliente_final) + '"></label>' +
-      '<div class="campo"><span>Pago</span><div class="seg" id="f-pago">' + Object.keys(PAGOS).map(function (k) {
+      '<div class="campo"><span>Pago</span><div class="seg" id="f-pago">' + PAGOS_FORM.concat(PAGOS_FORM.indexOf(d.metodo_pago) < 0 ? [d.metodo_pago] : []).map(function (k) {
         return '<button type="button" data-v="' + k + '" class="' + (d.metodo_pago === k ? 'sel' : '') + '">' + PAGOS[k] + '</button>';
       }).join('') + '</div>' +
       '<input id="f-pago-det" placeholder="¿Cuál?" value="' + esc(d.metodo_pago_detalle) + '"' + (d.metodo_pago === 'otro' ? '' : ' hidden') + '></div>' +

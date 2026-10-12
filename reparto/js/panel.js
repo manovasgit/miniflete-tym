@@ -6,7 +6,7 @@
 
 (function () {
   var $ = U.$, $$ = U.$$, esc = U.esc;
-  var PAGOS = { efectivo: 'Efectivo', transferencia: 'Transferencia', cta_cte: 'Cta. cte.', otro: 'Otro' };
+  var PAGOS = { efectivo: 'Efectivo', debito: 'Débito', credito: 'Crédito', transferencia: 'Transferencia', cta_cte: 'Cta. cte.', otro: 'Otro' };
   var ESTADOS = { pendiente: 'Pendiente', en_camino: 'En camino', entregado: 'Entregado', no_entregado: 'No entregado' };
   var EST_REPARTO = { armado: 'Armado', en_curso: 'En curso', finalizado: 'Finalizado' };
   var MOTIVOS = { ausente: 'Ausente', dir_incorrecta: 'Dirección incorrecta', rechazo: 'Rechazó', otro: 'Otro' };
