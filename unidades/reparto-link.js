@@ -1,7 +1,8 @@
 // Unidades ↔ Reparto TyM
 // Agrega dos cosas, nada más:
 //   1. Botón "Asignar a chofer" en el detalle de cada trabajo: lo manda a Reparto como flete,
-//      con el ID del trabajo. El trabajo sigue guardado en Unidades igual que siempre.
+//      con el ID del trabajo y la misma comanda que se copia desde Unidades (con precios).
+//      El trabajo sigue guardado en Unidades igual que siempre.
 //   2. Etiqueta de solo lectura con el estado del flete (en la agenda y en el detalle).
 // Nunca crea, modifica ni borra trabajos de Unidades: solo lee el trabajo y le pregunta a Reparto.
 // Todo está aislado: si Reparto no responde o algo falla acá, Unidades sigue funcionando normal.
@@ -229,7 +230,7 @@
         '<label>Fletero</label><select id="rl-fl">' + r.fleteros.map(function (x) {
           return '<option value="' + esc(x.id) + '"' + (actual && actual.fletero === x.nombre ? ' selected' : '') + '>' + esc(x.nombre) + '</option>';
         }).join('') + '</select>' +
-        '<p class="rl-ayuda">Se le mandan cliente, teléfonos, direcciones, fecha, hora, inventario y aclaraciones. Los precios no.</p>' +
+        '<p class="rl-ayuda">Se le manda la misma comanda que copiás desde Unidades (con precios).</p>' +
         '<p class="rl-error" id="rl-err" hidden></p>' +
         '<button class="btn-primary" id="rl-ok">Mandar al fletero</button><button class="rl-cancelar">Cancelar</button>';
       f.querySelector('.rl-cancelar').addEventListener('click', function () { f.remove(); });
@@ -259,10 +260,14 @@
     });
   }
 
-  // Lo que viaja a Reparto: sin precios ni datos de cobro
+  // Lo que viaja a Reparto: los datos sueltos (para direcciones y teléfono) y la comanda completa,
+  // la misma que se copia desde Unidades (generarComanda de comanda.js), que va como nota del flete
   function datosDelTrabajo(j) {
     function dir(calle, piso) { return [calle, piso].filter(Boolean).join(' '); }
+    var comanda = '';
+    try { if (typeof generarComanda === 'function') comanda = generarComanda(j); } catch (e) { /* va sin comanda */ }
     return {
+      comanda: comanda,
       id: j.id, nombre: j.nombre, fecha: j.fecha, hora: j.hora,
       telefono: j.telefonoRetiro, telefonoEntrega: j.telefonoEntrega,
       dirRetiro: dir(j.calleRetiro, j.pisoRetiro), locRetiro: j.barrioRetiro,
