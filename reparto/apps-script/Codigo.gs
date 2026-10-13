@@ -13,7 +13,7 @@
  */
 
 var TZ = 'America/Argentina/Buenos_Aires';
-var VERSION_API = '3.0.0';
+var VERSION_API = '3.1.0';
 var DIAS_SESION_CHOFER = 30;
 var DIAS_SESION_PANEL = 7;
 var MAX_INTENTOS = 5;
@@ -899,7 +899,7 @@ function guardarFlete(db, admin, d, origen) {
     ['lat_retiro', 'lng_retiro', 'lat_entrega', 'lng_entrega'].forEach(function (c) { f[c] = numOVacio(d[c]); });
     f.fecha = d.fecha;
     f.hora = texto(d.hora, 5);
-    f.nota = texto(d.nota, 1000);
+    f.nota = texto(d.nota, 2000);
     if (d.unidades_job_id) f.unidades_job_id = texto(d.unidades_job_id, 80);
 
     var resumen = cliente + ' · ' + fechaCorta(f.fecha) + (f.hora ? ' ' + f.hora : '');
@@ -938,7 +938,8 @@ function fechaCorta(f) {
 
 // ── Enganche con Unidades ─────────────────────────────────────────────────
 // Unidades manda un trabajo; se crea o actualiza el flete con ese ID de Unidades.
-// No se mandan precios ni datos de cobro: el fletero no los necesita.
+// La nota del flete es la comanda de Unidades (con precios, como la que se copia para WhatsApp).
+// Los fletes nunca llegan a los paneles de los clientes.
 function accUnidadesAsignar(ctx, d) {
   var db = ctx.db;
   var job = d.job || {};
@@ -946,7 +947,9 @@ function accUnidadesAsignar(ctx, d) {
   if (!jobId) throw new Falla('Falta el ID del trabajo de Unidades');
   var existente = db.t('Fletes').filtrar(function (f) { return f.unidades_job_id === jobId; })
     .sort(function (a, b) { return (b.actualizado_ts || 0) - (a.actualizado_ts || 0); })[0];
-  var nota = [
+  // Si Unidades manda su comanda (la misma que se copia para WhatsApp), va tal cual, sin los
+  // asteriscos de negrita. Si no (versión vieja de Unidades), se arma la nota con los datos sueltos.
+  var nota = job.comanda ? String(job.comanda).replace(/\*/g, '').replace(/\n{3,}/g, '\n\n').trim() : [
     job.inventario ? 'Inventario: ' + job.inventario : '',
     job.peones ? 'Peones: ' + job.peones : '',
     job.viaja ? 'Viaja en la unidad: ' + job.viaja : '',
