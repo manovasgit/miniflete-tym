@@ -1,7 +1,7 @@
 // Reparto TyM — configuración
 // VERSION se muestra en la app. Al cambiar cualquier archivo, subir VERSION y CACHE en sw.js a la par.
 var CONFIG = {
-  VERSION: '3.0.0',
+  VERSION: '3.1.0',
 
   // URL del Apps Script publicado como web app (etapa 2). No es secreta: sin token no devuelve datos.
   API_URL: 'https://script.google.com/macros/s/AKfycbxSI3kAU_zSf5pPXB_FWcoFwTMZ-0FUD4eCUSyRQ-B4JIXFGf2Hb4f6Ty170N8ZOp5sAA/exec',
@@ -21,7 +21,15 @@ var CONFIG = {
 
   // Notificaciones push (etapa 3). Configuración WEB de Firebase: es pública, identifica el proyecto.
   // null = apagadas. La clave privada NO va acá: se carga en el Apps Script.
-  FIREBASE: null,
+  FIREBASE: {
+    apiKey: 'AIzaSyBvMRLjgFd1M8nlbBFPHnbLWKrTpBzwRfQ',
+    authDomain: 'reparto-tym.firebaseapp.com',
+    projectId: 'reparto-tym',
+    storageBucket: 'reparto-tym.firebasestorage.app',
+    messagingSenderId: '844440528020',
+    appId: '1:844440528020:web:ef1bbc8788243bac090081',
+    vapidKey: 'BMMRKdiLitY0g0OZw2RhheE6Rdf5mOmx8lg0esS00nu2UqHhPuSWe8YhG9EKHwRIQKPjUvWlU3PvW-HP327Zqtg',
+  },
 
   // Zona aceptada para geocodificar (AMBA ampliado): [oeste, sur, este, norte]
   AMBA: [-59.25, -35.15, -57.85, -34.20],
