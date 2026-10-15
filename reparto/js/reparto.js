@@ -270,15 +270,28 @@
       html += '<section class="tarjeta proxima">' +
         '<div class="prox-tit">' + (prox.estado === 'en_camino' ? 'En camino a' : 'Próxima') + '</div>' +
         '<div class="prox-dir"><span class="num">' + numero(r, prox) + '</span> ' + esc(prox.direccion) + '</div>' +
-        '<div class="prox-sub">' + esc([prox.localidad, prox.cliente_final].filter(Boolean).join(' · ')) + '</div>' +
+        '<div class="prox-sub">' + esc(subtitulo(prox)) + '</div>' +
         detallesChips(prox) +
         (prox.nota ? '<div class="nota">' + esc(prox.nota) + '</div>' : '') +
+        contacto(prox, r) +
         '<button class="btn btn-pri btn-grande" data-nav="' + prox.id + '">➤ Navegar' + (app ? ' (' + (app === 'waze' ? 'Waze' : 'Google Maps') + ')' : '') + '</button>' +
         (app ? '<button class="btn-link" id="btn-cambiar-nav">Cambiar app de navegación</button>' : '') +
         '<div class="fila-2">' +
         '<button class="btn btn-ok" data-ok="' + prox.id + '">✓ Entregado</button>' +
         '<button class="btn btn-mal" data-no="' + prox.id + '">✗ No entregado</button>' +
         '</div></section>';
+    }
+
+    // Vuelta a la base: sin pendientes, lo último del reparto es volver y cerrarlo
+    var volviendo = !pend.length && hechas.length;
+    if (volviendo) {
+      html += '<section class="tarjeta proxima vuelta">' +
+        '<div class="prox-tit">Último paso</div>' +
+        '<div class="prox-dir">⌂ Vuelta a la base</div>' +
+        '<div class="prox-sub">' + esc(r.base_direccion || base().direccion) + '</div>' +
+        '<button class="btn btn-pri btn-grande" data-nav-base>➤ Navegar a la base</button>' +
+        '<button class="btn btn-ok btn-grande" id="btn-cerrar">✓ Llegué: cerrar reparto</button>' +
+        '</section>';
     }
 
     // Lista / mapa
@@ -291,6 +304,11 @@
     if (!verMapa) {
       html += '<ol class="paradas" id="lista-hechas">' + hechas.map(function (p) { return itemParada(r, p, false); }).join('') + '</ol>';
       html += '<ol class="paradas" id="lista-pend">' + pend.map(function (p) { return itemParada(r, p, true); }).join('') + '</ol>';
+      if (pend.length && hayRuta) {
+        html += '<div class="parada parada-base"><span class="num">⌂</span><div class="parada-txt">' +
+          '<div class="parada-dir">Vuelta a la base</div><div class="parada-sub">' + esc(r.base_direccion || base().direccion) + '</div></div>' +
+          '<div class="parada-der">' + (r.regreso ? '<span class="hora">~' + esc(r.regreso) + '</span>' : '') + '</div></div>';
+      }
       if (pend.length > 1 && hayRuta) html += '<p class="ayuda centro">Mantené apretado ☰ y arrastrá para cambiar el orden.</p>';
       if (!lista.length) html += '<div class="vacio"><p>Todavía no cargaste paradas.</p></div>';
     }
@@ -307,7 +325,9 @@
     } else if (pend.length > 1 && hayRuta) {
       html += '<button class="btn btn-sec" id="btn-armar">Reoptimizar pendientes</button>';
     }
-    if (r.estado === 'en_curso' || (lista.length && !pend.length)) {
+    if (volviendo) {
+      // el botón de cerrar está en la tarjeta de la vuelta
+    } else if (r.estado === 'en_curso') {
       html += '<button class="btn btn-borde" id="btn-cerrar">Cerrar reparto</button>';
     } else if (r.estado === 'armado' && lista.length) {
       html += '<button class="btn-link txt-mal" id="btn-descartar">Descartar este reparto</button>';
@@ -318,6 +338,25 @@
     conectar(r);
     mostrarMapa(verMapa);
     if (verMapa) dibujarMapa(r);
+  }
+
+  function subtitulo(p) {
+    return [p.localidad, p.cliente_final, p.telefono ? '📞 ' + p.telefono : ''].filter(Boolean).join(' · ');
+  }
+
+  // Llamar / WhatsApp a quien recibe. El WhatsApp sale con el aviso de que vamos para allá.
+  function contacto(p, r) {
+    if (!p.telefono) return '';
+    var eta = p.eta && r.hora_armado && !r.ruta_vieja ? p.eta : '';
+    var cli = usuario && usuario.cliente ? usuario.cliente.nombre : '';
+    var msg = 'Hola, ¿cómo estás? ' + (usuario ? 'Soy ' + usuario.nombre_mostrar + ', del' : 'Te escribo del') + ' reparto' +
+      (cli ? ' de ' + cli : '') + '. Estoy yendo con tu pedido a ' + p.direccion +
+      (eta ? ', llego a eso de las ' + eta : '') + '. ¡Gracias!';
+    var wa = U.linkWhatsApp(p.telefono, msg);
+    return '<div class="fila-2 contacto">' +
+      '<a class="btn btn-sec" href="' + esc(U.linkTel(p.telefono)) + '">📞 Llamar</a>' +
+      (wa ? '<a class="btn btn-wa" href="' + esc(wa) + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
+      '</div>';
   }
 
   function detallesChips(p) {
@@ -337,7 +376,7 @@
       '<span class="num">' + numero(r, p) + '</span>' +
       '<div class="parada-txt">' +
       '<div class="parada-dir">' + esc(p.direccion) + '</div>' +
-      '<div class="parada-sub">' + esc([p.localidad, p.cliente_final].filter(Boolean).join(' · ')) + '</div>' +
+      '<div class="parada-sub">' + esc(subtitulo(p)) + '</div>' +
       detallesChips(p) +
       (p.estado === 'no_entregado' ? '<div class="txt-mal chico">' + esc(MOTIVOS[p.motivo] || '') + (p.motivo_detalle ? ': ' + esc(p.motivo_detalle) : '') + '</div>' : '') +
       '</div>' +
@@ -362,6 +401,7 @@
       b.addEventListener('click', function () { verMapa = b.dataset.tab === 'mapa'; render(); });
     });
     $$('[data-nav]', v).forEach(function (b) { b.addEventListener('click', function () { navegar(b.dataset.nav); }); });
+    $$('[data-nav-base]', v).forEach(function (b) { b.addEventListener('click', function () { navegar('base'); }); });
     $$('[data-ok]', v).forEach(function (b) { b.addEventListener('click', function () { marcarEntregado(b.dataset.ok); }); });
     $$('[data-no]', v).forEach(function (b) { b.addEventListener('click', function () { abrirNoEntregado(b.dataset.no); }); });
     $$('.parada', v).forEach(function (li) {
@@ -535,6 +575,10 @@
     var app = Store.navApp();
     if (!app) { elegirNav(id); return; }
     var r = Store.reparto();
+    if (id === 'base') {
+      if (r.base_lat != null) window.open(Routing.linkNavegacion(r.base_lat, r.base_lng, app), '_blank');
+      return;
+    }
     var p = Store.parada(r, id);
     if (!p || p.lat == null) return;
     var empezaba = r.estado === 'armado';
@@ -611,7 +655,7 @@
   function verificarFin() {
     var r = Store.reparto();
     if (r && r.estado === 'en_curso' && !pendientes(r).length) {
-      setTimeout(function () { U.toast('¡Listo! No quedan paradas. Cerrá el reparto al volver a la base.', 4500); }, 2700);
+      setTimeout(function () { U.toast('¡Listo! No quedan paradas. Volvé a la base y cerrá el reparto.', 4500); }, 2700);
     }
   }
 
@@ -623,9 +667,10 @@
     var horas = ['pendiente', 'en_camino', 'entregado', 'no_entregado'].filter(function (e) { return p['hora_' + e]; })
       .map(function (e) { return '<li>' + ESTADOS[e] + ': ' + U.hora(p['hora_' + e]) + '</li>'; }).join('');
     abrirHoja('<h2><span class="num">' + numero(r, p) + '</span> ' + esc(p.direccion) + '</h2>' +
-      '<p class="ayuda">' + esc([p.localidad, p.cliente_final].filter(Boolean).join(' · ')) + '</p>' +
+      '<p class="ayuda">' + esc(subtitulo(p)) + '</p>' +
       detallesChips(p) +
       (p.nota ? '<div class="nota">' + esc(p.nota) + '</div>' : '') +
+      (abierta ? contacto(p, r) : '') +
       '<ul class="horas">' + horas + '</ul>' +
       (abierta && p.lat != null ? '<button class="btn btn-pri btn-grande" data-nav="' + p.id + '">➤ Navegar</button>' +
         '<div class="fila-2"><button class="btn btn-ok" data-ok="' + p.id + '">✓ Entregado</button>' +
@@ -662,7 +707,7 @@
     var pend = pendientes(r);
     var msg = pend.length
       ? 'Quedan ' + pend.length + ' parada(s) sin marcar. Van a quedar como pendientes.\n\n¿Cerrar el reparto igual?'
-      : '¿Cerrar el reparto? Hacelo al volver a la base.';
+      : '¿Llegaste a la base? Se cierra el reparto del día.';
     if (!confirm(msg)) return;
     if (r.estado === 'armado') Store.iniciar(r);
     ultimoFinalizado = Store.finalizar(r);
@@ -684,7 +729,7 @@
   function abrirFormParada(id) {
     var r = Store.reparto();
     var p = id && r ? Store.parada(r, id) : null;
-    var d = p || { direccion: '', localidad: '', cliente_final: '', metodo_pago: 'efectivo', metodo_pago_detalle: '', nota: '', prioridad: 'normal', hora_limite: '' };
+    var d = p || { direccion: '', localidad: '', telefono: '', metodo_pago: 'efectivo', metodo_pago_detalle: '', nota: '', prioridad: 'normal', hora_limite: '' };
     var geo = p && p.lat != null ? { lat: p.lat, lng: p.lng, fuente: p.geo_fuente } : null;
 
     abrirHoja('<h2>' + (p ? 'Editar parada' : 'Nueva parada') + '</h2>' +
@@ -692,7 +737,7 @@
       '<label class="campo"><span>Dirección *</span><input id="f-dir" required placeholder="Ej: Av. Cabildo 2040" value="' + esc(d.direccion) + '"></label>' +
       '<label class="campo"><span>Localidad o barrio</span><input id="f-loc" list="dl-localidades" placeholder="Ej: Belgrano, Morón, Olivos" value="' + esc(d.localidad) + '"></label>' +
       opcionesLocalidad() +
-      '<label class="campo"><span>Cliente</span><input id="f-cli" placeholder="Nombre de quien recibe" value="' + esc(d.cliente_final) + '"></label>' +
+      '<label class="campo"><span>Teléfono</span><input id="f-tel" type="tel" inputmode="tel" placeholder="Ej: 11 6455-4602" value="' + esc(d.telefono || '') + '"></label>' +
       '<div class="campo"><span>Pago</span><div class="seg" id="f-pago">' + PAGOS_FORM.concat(PAGOS_FORM.indexOf(d.metodo_pago) < 0 ? [d.metodo_pago] : []).map(function (k) {
         return '<button type="button" data-v="' + k + '" class="' + (d.metodo_pago === k ? 'sel' : '') + '">' + PAGOS[k] + '</button>';
       }).join('') + '</div>' +
@@ -727,7 +772,7 @@
       return {
         direccion: $('#f-dir').value.trim(),
         localidad: $('#f-loc').value.trim(),
-        cliente_final: $('#f-cli').value.trim(),
+        telefono: $('#f-tel').value.trim(),
         metodo_pago: pago,
         metodo_pago_detalle: pago === 'otro' ? $('#f-pago-det').value.trim() : '',
         prioridad: prio,
@@ -739,6 +784,7 @@
     function validar(x) {
       if (!x.direccion) { U.toast('Falta la dirección'); $('#f-dir').focus(); return false; }
       if (x.prioridad === 'hora' && !x.hora_limite) { U.toast('Poné la hora límite'); return false; }
+      if (x.telefono && !U.telAR(x.telefono)) { U.toast('Revisá el teléfono: con característica, ej. 11 6455-4602'); $('#f-tel').focus(); return false; }
       return true;
     }
 

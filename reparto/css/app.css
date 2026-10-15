@@ -372,3 +372,10 @@ p { margin: 0 0 8px; }
 .fa-horas { font-size: .85rem; color: var(--texto-2); margin-top: 6px; }
 .fa-acciones { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; }
 .fa-acciones .btn-mini { margin: 0; }
+
+/* 3.2: contacto con quien recibe y vuelta a la base */
+a.btn { text-align: center; text-decoration: none; line-height: 1.3; display: flex; align-items: center; justify-content: center; }
+.btn-wa { background: #25d366; color: #fff; }
+.contacto .btn { margin: 6px 0; }
+.parada-base { cursor: default; background: transparent; box-shadow: none; border: 2px dashed var(--borde); }
+.vuelta .prox-dir { margin-bottom: 2px; }

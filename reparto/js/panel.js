@@ -277,7 +277,7 @@
         return '<li class="p-parada est-' + p.estado + '">' +
           '<span class="num">' + (i + 1) + '</span>' +
           '<div class="parada-txt"><div class="parada-dir">' + esc(p.direccion) + '</div>' +
-          '<div class="parada-sub">' + esc([p.localidad, p.cliente_final].filter(Boolean).join(' · ')) + '</div>' +
+          '<div class="parada-sub">' + esc([p.localidad, p.cliente_final, p.telefono ? '📞 ' + p.telefono : ''].filter(Boolean).join(' · ')) + '</div>' +
           '<div class="chips">' +
           (p.prioridad === 'urgente' ? '<span class="chip chip-urgente">Urgente</span>' : '') +
           (p.prioridad === 'hora' && p.hora_limite ? '<span class="chip chip-hora' + (p.aviso_horario && p.estado === 'pendiente' ? ' chip-tarde' : '') + '">Antes de ' + esc(p.hora_limite) + '</span>' : '') +

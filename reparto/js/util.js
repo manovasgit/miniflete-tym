@@ -128,10 +128,35 @@ var U = (function () {
     });
   }
 
+  // Teléfono argentino → 10 dígitos (característica + número, sin 0 ni 15). '' si no se entiende.
+  // Acepta "11 6455-4602", "15 6455 4602", "011 15 6455-4602", "+54 9 11 6455 4602".
+  function telAR(t) {
+    var d = String(t || '').replace(/\D/g, '');
+    if (d.indexOf('54') === 0 && d.length >= 12) d = d.slice(2);
+    if (d.charAt(0) === '9' && d.length === 11) d = d.slice(1);
+    if (d.charAt(0) === '0') d = d.slice(1);
+    if (d.length === 12) {
+      // "15" después de la característica (2 a 4 dígitos)
+      for (var i = 2; i <= 4; i++) if (d.substr(i, 2) === '15') { d = d.slice(0, i) + d.slice(i + 2); break; }
+    }
+    if (d.length === 10 && d.indexOf('15') === 0) d = '11' + d.slice(2);  // "15 xxxx-xxxx" sin característica: CABA
+    if (d.length === 8) d = '11' + d;                                         // número suelto: CABA
+    return d.length === 10 ? d : '';
+  }
+  function linkTel(t) {
+    var d = telAR(t);
+    return 'tel:' + (d ? '+54' + d : String(t || '').replace(/[^\d+]/g, ''));
+  }
+  function linkWhatsApp(t, msg) {
+    var d = telAR(t);
+    return d ? 'https://wa.me/549' + d + (msg ? '?text=' + encodeURIComponent(msg) : '') : '';
+  }
+
   return {
     hoy: hoy, ahoraISO: ahoraISO, hora: hora, minutosDelDia: minutosDelDia,
     hhmmAMin: hhmmAMin, minAHhmm: minAHhmm, duracion: duracion, km: km,
     id: id, esc: esc, normalizar: normalizar, $: $, $$: $$, toast: toast,
     vibrar: vibrar, esperar: esperar, fetchT: fetchT, gps: gps,
+    telAR: telAR, linkTel: linkTel, linkWhatsApp: linkWhatsApp,
   };
 })();

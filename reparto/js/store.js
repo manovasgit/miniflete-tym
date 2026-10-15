@@ -103,7 +103,7 @@ var Store = (function () {
       origen: 'repartidor',
       creado_por: r.repartidor_id,
       orden: r.paradas.length + 1,
-      direccion: '', localidad: '', cliente_final: '',
+      direccion: '', localidad: '', cliente_final: '', telefono: '',
       metodo_pago: 'efectivo', metodo_pago_detalle: '', nota: '',
       prioridad: 'normal', hora_limite: '',
       lat: null, lng: null, geo_fuente: null,
