@@ -379,3 +379,21 @@ a.btn { text-align: center; text-decoration: none; line-height: 1.3; display: fl
 .contacto .btn { margin: 6px 0; }
 .parada-base { cursor: default; background: transparent; box-shadow: none; border: 2px dashed var(--borde); }
 .vuelta .prox-dir { margin-bottom: 2px; }
+
+/* Cartel para instalar la app (va encima del login, debajo de los avisos) */
+.cartel-instalar {
+  position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 995;
+  display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 12px;
+  background: #fff; border-radius: var(--radio); box-shadow: 0 4px 18px rgba(0, 0, 0, .22);
+}
+.cartel-instalar img { width: 40px; height: 40px; border-radius: 10px; }
+.ci-txt { flex: 1; display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.ci-txt span { font-size: .85rem; color: var(--texto-2); }
+.cartel-instalar .btn { width: auto; margin: 0; min-height: 44px; padding: 8px 16px; }
+.ci-x { background: none; border: 0; font-size: 1.1rem; color: var(--texto-2); padding: 8px; cursor: pointer; }
+body.con-cartel { padding-bottom: 84px; }
+.pasos-instalar { padding-left: 22px; margin: 12px 0; }
+.pasos-instalar li { margin: 10px 0; line-height: 1.45; }
+.pasos-instalar svg { vertical-align: middle; }
+.con-cartel .login { padding-bottom: 104px; }
+.hoja-fondo.hoja-encima { z-index: 996; } .hoja.hoja-encima { z-index: 997; }

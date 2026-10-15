@@ -847,6 +847,8 @@
       '<label class="campo"><span>Minutos en cada parada</span><input id="aj-min" type="number" min="1" max="30" inputmode="numeric" value="' + a.min_por_parada + '"></label>' : '') +
       (window.Push && Push.disponible() ? '<div class="campo"><span>Notificaciones</span>' +
         (Notification.permission === 'granted' ? '<p>🔔 Activadas</p>' : Push.aviso()) + '</div>' : '') +
+      (window.Instalar && Instalar.disponible() ? '<div class="campo"><span>Instalar</span>' +
+        '<button class="btn btn-sec" id="aj-instalar">📲 Instalar la app en este celular</button></div>' : '') +
       '<div class="campo"><span>App para navegar</span><p>' + (app ? (app === 'waze' ? 'Waze' : 'Google Maps') : 'Se pregunta la primera vez') + '</p>' +
       '<button class="btn btn-sec" id="aj-nav">Elegir</button></div>' +
       '<button class="btn btn-pri" id="aj-ok">Guardar</button>' +
@@ -860,6 +862,7 @@
       Sesion.salir();
     });
     $('#aj-nav').addEventListener('click', function () { elegirNav(null); });
+    if ($('#aj-instalar')) $('#aj-instalar').addEventListener('click', function () { cerrarHoja(); Instalar.instalar(); });
     $('#aj-ok').addEventListener('click', function () {
       if ($('#aj-min')) {
         var m = parseInt($('#aj-min').value, 10);

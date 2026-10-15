@@ -5,10 +5,13 @@
 var Hoja = (function () {
   var $ = U.$, $$ = U.$$;
 
-  function abrir(html, alta) {
+  // encima: la hoja va por arriba de la pantalla de login (ej. los pasos para instalar)
+  function abrir(html, alta, encima) {
     var h = $('#hoja');
     h.innerHTML = '<div class="hoja-asa"></div>' + html;
     h.classList.toggle('hoja-alta', !!alta);
+    h.classList.toggle('hoja-encima', !!encima);
+    $('#hoja-fondo').classList.toggle('hoja-encima', !!encima);
     h.hidden = false;
     $('#hoja-fondo').hidden = false;
     $$('[data-cerrar]', h).forEach(function (b) { b.addEventListener('click', cerrar); });
