@@ -397,3 +397,4 @@ body.con-cartel { padding-bottom: 84px; }
 .pasos-instalar svg { vertical-align: middle; }
 .con-cartel .login { padding-bottom: 104px; }
 .hoja-fondo.hoja-encima { z-index: 996; } .hoja.hoja-encima { z-index: 997; }
+.txt-ok { color: var(--ok); }

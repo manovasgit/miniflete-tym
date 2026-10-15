@@ -8,6 +8,7 @@
   var PAGOS = { efectivo: 'Efectivo', debito: 'Débito', credito: 'Crédito', transferencia: 'Transferencia', cta_cte: 'Cuenta corriente', otro: 'Otro' };
   var ESTADOS = { pendiente: 'Pendiente', en_camino: 'En camino', entregado: 'Entregado', no_entregado: 'No entregado' };
   var MOTIVOS = { ausente: 'Ausente', dir_incorrecta: 'Dirección incorrecta', rechazo: 'Rechazó', otro: 'Otro' };
+  var RECIBIO = ['El cliente', 'Familiar', 'Portería', 'Vecino/a', 'Empleado/a', 'Otro'];
   var EST_REPARTO = { armado: 'Armado', en_curso: 'En curso', finalizado: 'Finalizado' };
   var LOC_GBA = ['Vicente López', 'Olivos', 'Florida', 'Munro', 'Martínez', 'San Isidro', 'Beccar', 'Boulogne',
     'San Fernando', 'Tigre', 'San Martín', 'Villa Ballester', 'Tres de Febrero', 'Caseros', 'Ciudadela',
@@ -379,6 +380,7 @@
       '<div class="parada-sub">' + esc(subtitulo(p)) + '</div>' +
       detallesChips(p) +
       (p.estado === 'no_entregado' ? '<div class="txt-mal chico">' + esc(MOTIVOS[p.motivo] || '') + (p.motivo_detalle ? ': ' + esc(p.motivo_detalle) : '') + '</div>' : '') +
+      (p.estado === 'entregado' && p.recibio ? '<div class="txt-ok chico">Recibió: ' + esc(p.recibio) + '</div>' : '') +
       '</div>' +
       '<div class="parada-der"><span class="chip chip-p-' + p.estado + '">' + ESTADOS[p.estado] + '</span>' +
       (hora ? '<span class="hora">' + hora + '</span>' : '') +
@@ -402,7 +404,7 @@
     });
     $$('[data-nav]', v).forEach(function (b) { b.addEventListener('click', function () { navegar(b.dataset.nav); }); });
     $$('[data-nav-base]', v).forEach(function (b) { b.addEventListener('click', function () { navegar('base'); }); });
-    $$('[data-ok]', v).forEach(function (b) { b.addEventListener('click', function () { marcarEntregado(b.dataset.ok); }); });
+    $$('[data-ok]', v).forEach(function (b) { b.addEventListener('click', function () { abrirEntregado(b.dataset.ok); }); });
     $$('[data-no]', v).forEach(function (b) { b.addEventListener('click', function () { abrirNoEntregado(b.dataset.no); }); });
     $$('.parada', v).forEach(function (li) {
       li.addEventListener('click', function (e) {
@@ -606,10 +608,37 @@
     });
   }
 
-  function marcarEntregado(id) {
+  // Comprobante de entrega: quién recibió (un toque) y, si quiere, el nombre
+  function abrirEntregado(id) {
+    var p = Store.parada(Store.reparto(), id);
+    var quien = null;
+    abrirHoja('<h2>¿Quién recibió?</h2>' +
+      '<p class="ayuda">' + esc(p.direccion) + '</p>' +
+      '<div class="opciones">' + RECIBIO.map(function (k) {
+        return '<button class="btn btn-sec" data-recibio="' + esc(k) + '">' + esc(k) + '</button>';
+      }).join('') + '</div>' +
+      '<label class="campo"><span>Nombre (opcional)</span><input id="rec-nombre" autocapitalize="words" placeholder="Ej: Juan"></label>' +
+      '<button class="btn btn-ok btn-grande" id="rec-ok" disabled>✓ Confirmar entregado</button>' +
+      '<button class="btn-link" data-cerrar>Cancelar</button>');
+    $$('[data-recibio]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        quien = b.dataset.recibio;
+        $$('[data-recibio]').forEach(function (x) { x.classList.toggle('btn-pri', x === b); x.classList.toggle('btn-sec', x !== b); });
+        $('#rec-ok').disabled = false;
+        if (quien === 'Otro') $('#rec-nombre').focus();
+      });
+    });
+    $('#rec-ok').addEventListener('click', function () {
+      var nombre = $('#rec-nombre').value.trim();
+      if (quien === 'Otro' && !nombre) { U.toast('Escribí quién recibió'); $('#rec-nombre').focus(); return; }
+      marcarEntregado(id, quien === 'Otro' ? nombre : quien + (nombre ? ' – ' + nombre : ''));
+    });
+  }
+
+  function marcarEntregado(id, recibio) {
     var r = Store.reparto();
     var empezaba = r.estado === 'armado';
-    Store.estadoParada(r, id, 'entregado');
+    Store.estadoParada(r, id, 'entregado', recibio);
     U.vibrar(60);
     U.toast('Entregado ✓  (tocá la parada si fue un error)');
     cerrarHoja();
@@ -671,6 +700,7 @@
       detallesChips(p) +
       (p.nota ? '<div class="nota">' + esc(p.nota) + '</div>' : '') +
       (abierta ? contacto(p, r) : '') +
+      (p.estado === 'entregado' && p.recibio ? '<p class="txt-ok"><b>Recibió:</b> ' + esc(p.recibio) + '</p>' : '') +
       '<ul class="horas">' + horas + '</ul>' +
       (abierta && p.lat != null ? '<button class="btn btn-pri btn-grande" data-nav="' + p.id + '">➤ Navegar</button>' +
         '<div class="fila-2"><button class="btn btn-ok" data-ok="' + p.id + '">✓ Entregado</button>' +
@@ -681,7 +711,7 @@
       '<button class="btn-link" data-cerrar>Cerrar</button>');
     var h = $('#hoja');
     $$('[data-nav]', h).forEach(function (b) { b.addEventListener('click', function () { cerrarHoja(); navegar(id); }); });
-    $$('[data-ok]', h).forEach(function (b) { b.addEventListener('click', function () { marcarEntregado(id); }); });
+    $$('[data-ok]', h).forEach(function (b) { b.addEventListener('click', function () { abrirEntregado(id); }); });
     $$('[data-no]', h).forEach(function (b) { b.addEventListener('click', function () { abrirNoEntregado(id); }); });
     var re = $('#det-reabrir');
     if (re) re.addEventListener('click', function () {

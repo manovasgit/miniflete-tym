@@ -103,7 +103,7 @@ var Store = (function () {
       origen: 'repartidor',
       creado_por: r.repartidor_id,
       orden: r.paradas.length + 1,
-      direccion: '', localidad: '', cliente_final: '', telefono: '',
+      direccion: '', localidad: '', cliente_final: '', telefono: '', recibio: '',
       metodo_pago: 'efectivo', metodo_pago_detalle: '', nota: '',
       prioridad: 'normal', hora_limite: '',
       lat: null, lng: null, geo_fuente: null,
@@ -145,6 +145,7 @@ var Store = (function () {
   }
 
   // Cambia el estado de una parada y guarda la hora. El reparto pasa solo a "en curso".
+  // Para 'no_entregado', motivo + detalle. Para 'entregado', motivo = quién recibió.
   function estadoParada(r, id, estado, motivo, detalle) {
     var p = parada(r, id);
     if (!p) return null;
@@ -170,6 +171,7 @@ var Store = (function () {
       p.motivo = '';
       p.motivo_detalle = '';
     }
+    p.recibio = estado === 'entregado' ? (motivo || '') : '';
     p.actualizado_ts = Date.now();
 
     if (r.estado === 'armado' && estado !== 'pendiente') iniciar(r);

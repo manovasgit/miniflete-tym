@@ -13,7 +13,7 @@
  */
 
 var TZ = 'America/Argentina/Buenos_Aires';
-var VERSION_API = '3.2.0';
+var VERSION_API = '3.3.0';
 var DIAS_SESION_CHOFER = 30;
 var DIAS_SESION_PANEL = 7;
 var MAX_INTENTOS = 5;
@@ -34,8 +34,9 @@ var HOJAS = {
     'estado', 'motivo', 'motivo_detalle',
     'hora_pendiente', 'hora_en_camino', 'hora_entregado', 'hora_no_entregado',
     'eliminada', 'actualizado_ts',
-    // 3.2.0: teléfono de quien recibe (va al final para no desalinear las filas que ya existían)
-    'telefono'],
+    // Columnas nuevas siempre al final, para no desalinear las filas que ya existían
+    'telefono',   // 3.2.0: teléfono de quien recibe
+    'recibio'],   // 3.3.0: comprobante de entrega ("Portería – Juan")
   Fletes: ['id', 'origen', 'unidades_job_id', 'fletero_id', 'cliente', 'telefono',
     'dir_retiro', 'loc_retiro', 'lat_retiro', 'lng_retiro',
     'dir_entrega', 'loc_entrega', 'lat_entrega', 'lng_entrega',
@@ -433,7 +434,7 @@ var CAMPOS_REPARTO = ['fecha', 'estado', 'base_direccion', 'base_lat', 'base_lng
 var CAMPOS_PARADA = ['reparto_id', 'fecha', 'orden', 'direccion', 'localidad', 'cliente_final',
   'metodo_pago', 'metodo_pago_detalle', 'nota', 'prioridad', 'hora_limite', 'lat', 'lng', 'geo_fuente',
   'eta', 'aviso_horario', 'estado', 'motivo', 'motivo_detalle',
-  'hora_pendiente', 'hora_en_camino', 'hora_entregado', 'hora_no_entregado', 'eliminada', 'actualizado_ts', 'telefono'];
+  'hora_pendiente', 'hora_en_camino', 'hora_entregado', 'hora_no_entregado', 'eliminada', 'actualizado_ts', 'telefono', 'recibio'];
 
 function tomar(origen, campos) {
   var o = {};
@@ -467,6 +468,7 @@ function validarParada(p) {
   p.localidad = texto(p.localidad, 100);
   p.cliente_final = texto(p.cliente_final, 120);
   p.telefono = texto(p.telefono, 30);
+  p.recibio = p.estado === 'entregado' ? texto(p.recibio, 80) : '';
   p.metodo_pago_detalle = texto(p.metodo_pago_detalle, 80);
   p.nota = texto(p.nota, 500);
   p.motivo_detalle = texto(p.motivo_detalle, 300);
@@ -602,7 +604,7 @@ function alcance(db, u) {
 
 var CAMPOS_PARADA_PANEL = ['id', 'reparto_id', 'sucursal_id', 'orden', 'origen', 'direccion', 'localidad', 'cliente_final', 'telefono',
   'metodo_pago', 'metodo_pago_detalle', 'nota', 'prioridad', 'hora_limite', 'lat', 'lng', 'eta', 'aviso_horario',
-  'estado', 'motivo', 'motivo_detalle', 'hora_pendiente', 'hora_en_camino', 'hora_entregado', 'hora_no_entregado'];
+  'estado', 'motivo', 'motivo_detalle', 'hora_pendiente', 'hora_en_camino', 'hora_entregado', 'hora_no_entregado', 'recibio'];
 var CAMPOS_REPARTO_PANEL = ['id', 'fecha', 'sucursal_id', 'estado', 'km_estimados', 'min_estimados',
   'total_paradas', 'entregadas', 'no_entregadas', 'hora_armado', 'hora_inicio', 'hora_fin'];
 

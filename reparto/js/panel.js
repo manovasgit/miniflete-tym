@@ -284,6 +284,7 @@
           '<span class="chip chip-pago">' + esc(p.metodo_pago === 'otro' && p.metodo_pago_detalle ? p.metodo_pago_detalle : PAGOS[p.metodo_pago] || '') + '</span>' +
           '</div>' +
           (p.estado === 'no_entregado' ? '<div class="txt-mal chico">' + esc(MOTIVOS[p.motivo] || '') + (p.motivo_detalle ? ': ' + esc(p.motivo_detalle) : '') + '</div>' : '') +
+          (p.estado === 'entregado' && p.recibio ? '<div class="txt-ok chico">Recibió: ' + esc(p.recibio) + '</div>' : '') +
           (p.nota ? '<div class="ayuda chico">' + esc(p.nota) + '</div>' : '') +
           '</div>' +
           '<div class="parada-der"><span class="chip chip-p-' + p.estado + '">' + ESTADOS[p.estado] + '</span>' +
