@@ -44,7 +44,7 @@ var Admin = (function () {
         '<button class="btn-link btn-mini" data-cli="' + c.id + '">Editar</button></div>' +
         '<ul class="p-lista">' + sucs.map(function (s) {
           return '<li class="' + (s.activo ? '' : 'inactivo') + '"><div><b>' + esc(s.nombre) + '</b>' +
-            '<div class="ayuda chico">' + (s.lat != null ? '📍 ' + esc(s.direccion + (s.localidad ? ', ' + s.localidad : '')) : '<span class="txt-mal">Falta la dirección de la base</span>') + '</div></div>' +
+            '<div class="ayuda chico">' + (s.lat != null ? '📍 ' + esc(s.direccion + (s.localidad ? ', ' + s.localidad : '')) : '<span class="txt-mal">Falta la dirección de la sucursal</span>') + '</div></div>' +
             '<button class="btn-link btn-mini" data-suc="' + s.id + '">Editar</button></li>';
         }).join('') + '</ul>' +
         '<button class="btn-link btn-mini" data-nueva-suc="' + c.id + '">+ Sucursal</button></div>';
@@ -126,7 +126,7 @@ var Admin = (function () {
         return '<option value="' + c.id + '"' + (c.id === s.cliente_id ? ' selected' : '') + '>' + esc(c.nombre) + '</option>';
       }).join('') + '</select></label>' +
       '<label class="campo"><span>Nombre de la sucursal</span><input id="a-nombre" value="' + esc(s.nombre) + '" placeholder="Ej: BELGRANO"></label>' +
-      '<label class="campo"><span>Dirección de la base</span><input id="a-dir" value="' + esc(s.direccion) + '" placeholder="Ej: Av. Cabildo 2040"></label>' +
+      '<label class="campo"><span>Dirección de la sucursal</span><input id="a-dir" value="' + esc(s.direccion) + '" placeholder="Ej: Av. Cabildo 2040"></label>' +
       '<label class="campo"><span>Localidad o barrio</span><input id="a-loc" value="' + esc(s.localidad) + '"></label>' +
       '<p id="a-geo" class="ayuda">' + (geo ? '📍 Ubicada en el mapa' : 'Todavía sin ubicar en el mapa') + '</p>' +
       '<button class="btn btn-sec" id="a-ubicar">Ubicar en el mapa</button>' +
@@ -148,7 +148,7 @@ var Admin = (function () {
     $('#a-ok').addEventListener('click', function () {
       var dir = $('#a-dir').value.trim(), loc = $('#a-loc').value.trim();
       if (dir && (!geo || U.normalizar(dir + '|' + loc) !== dirOrig)) {
-        mostrarError('Tocá "Ubicar en el mapa" para confirmar dónde queda la base.');
+        mostrarError('Tocá "Ubicar en el mapa" para confirmar dónde queda la sucursal.');
         return;
       }
       guardar('admin.sucursal', {
@@ -180,7 +180,7 @@ var Admin = (function () {
       '<div class="campo"><span>Roles</span><div class="chk-grupo">' + ROLES.map(function (r) {
         return '<label class="chk"><input type="checkbox" value="' + r[0] + '"' + (u.roles.indexOf(r[0]) >= 0 ? ' checked' : '') + '> ' + r[1] + '</label>';
       }).join('') + '</div></div>' +
-      '<label class="campo" id="a-c-suc"><span>Sucursal <small class="ayuda">(repartidor: su base · sucursal: la que ve)</small></span><select id="a-suc">' + sucOps + '</select></label>' +
+      '<label class="campo" id="a-c-suc"><span>Sucursal <small class="ayuda">(repartidor: de dónde sale · sucursal: la que ve)</small></span><select id="a-suc">' + sucOps + '</select></label>' +
       '<label class="campo" id="a-c-cli"><span>Empresa <small class="ayuda">(dueño: ve todas sus sucursales)</small></span><select id="a-cli">' + cliOps + '</select></label>' +
       '<label class="campo"><span>Teléfono</span><input id="a-tel" type="tel" value="' + esc(u.telefono) + '"></label>' +
       '<label class="campo"><span>' + (u.tiene_pin ? 'PIN nuevo <small class="ayuda">(vacío = no se cambia; poner uno nuevo también lo desbloquea)</small>' : 'PIN <small class="ayuda">(sin PIN no puede entrar)</small>') + '</span>' +

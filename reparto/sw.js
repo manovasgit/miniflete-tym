@@ -1,6 +1,6 @@
 // Reparto TyM — service worker
 // Subir la versión ante CUALQUIER cambio (y CONFIG.VERSION en js/config.js a la par).
-const CACHE = 'mtym-reparto-v3.3.0';
+const CACHE = 'mtym-reparto-v4.0.0';
 const PREFIJO = 'mtym-reparto-';
 const ASSETS = [
   './',
@@ -16,6 +16,7 @@ const ASSETS = [
   './js/api.js',
   './js/sesion.js',
   './js/push.js',
+  './js/form-parada.js',
   './js/fletes.js',
   './js/reparto.js',
   './js/instalar.js',
@@ -94,7 +95,9 @@ self.addEventListener('push', e => {
     renotify: true,
     vibrate: [200, 100, 200],
     data: { tipo: d.tipo || '', id: d.id || '' },
-  }));
+  }).then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
+    // Si la app está abierta, que traiga lo nuevo ya (sin esperar a que toquen la notificación)
+    .then(ventanas => ventanas.forEach(w => w.postMessage({ tipo: 'refrescar' }))));
 });
 
 // Tocar la notificación abre la app (o la trae al frente y le pide que refresque)

@@ -120,6 +120,15 @@ var Store = (function () {
     return p;
   }
 
+  // Suma una parada que ya viene armada (la cargó la sucursal en el panel: tiene su propio id)
+  function sumarParada(r, p) {
+    p.actualizado_ts = Date.now();
+    r.paradas.push(p);
+    guardarReparto(r);
+    emitir('parada', p);
+    return p;
+  }
+
   function editarParada(r, id, datos) {
     var p = parada(r, id);
     if (!p) return null;
@@ -233,7 +242,7 @@ var Store = (function () {
     leer: leer, escribir: escribir, borrar: borrar, alCambiar: alCambiar, avisarCambio: emitir,
     ajustes: ajustes, guardarAjustes: guardarAjustes, navApp: navApp, guardarNavApp: guardarNavApp,
     reparto: reparto, nuevoReparto: nuevoReparto, guardarReparto: guardarReparto,
-    nuevaParada: nuevaParada, editarParada: editarParada, eliminarParada: eliminarParada,
+    nuevaParada: nuevaParada, sumarParada: sumarParada, editarParada: editarParada, eliminarParada: eliminarParada,
     parada: parada, paradasVivas: paradasVivas, estadoParada: estadoParada,
     iniciar: iniciar, finalizar: finalizar, historial: historial,
     geoCache: geoCache, guardarGeoCache: guardarGeoCache, borrarTodo: borrarTodo,

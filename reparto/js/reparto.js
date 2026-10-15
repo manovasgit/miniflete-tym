@@ -1,21 +1,13 @@
-// Reparto TyM — pantallas del chofer (etapa 1: reparto local)
+// Reparto TyM — pantallas del chofer (etapa 1: reparto local; etapa 4: paradas que carga la sucursal)
 
 (function () {
   var $ = U.$, $$ = U.$$, esc = U.esc;
 
-  // Medios de pago que se ofrecen al cargar. cta_cte y otro quedan solo para mostrar paradas viejas.
-  var PAGOS_FORM = ['efectivo', 'debito', 'credito', 'transferencia'];
-  var PAGOS = { efectivo: 'Efectivo', debito: 'Débito', credito: 'Crédito', transferencia: 'Transferencia', cta_cte: 'Cuenta corriente', otro: 'Otro' };
+  var PAGOS = FormParada.PAGOS;
   var ESTADOS = { pendiente: 'Pendiente', en_camino: 'En camino', entregado: 'Entregado', no_entregado: 'No entregado' };
   var MOTIVOS = { ausente: 'Ausente', dir_incorrecta: 'Dirección incorrecta', rechazo: 'Rechazó', otro: 'Otro' };
   var RECIBIO = ['El cliente', 'Familiar', 'Portería', 'Vecino/a', 'Empleado/a', 'Otro'];
   var EST_REPARTO = { armado: 'Armado', en_curso: 'En curso', finalizado: 'Finalizado' };
-  var LOC_GBA = ['Vicente López', 'Olivos', 'Florida', 'Munro', 'Martínez', 'San Isidro', 'Beccar', 'Boulogne',
-    'San Fernando', 'Tigre', 'San Martín', 'Villa Ballester', 'Tres de Febrero', 'Caseros', 'Ciudadela',
-    'Hurlingham', 'Ituzaingó', 'Morón', 'Haedo', 'Castelar', 'La Matanza', 'Ramos Mejía', 'San Justo',
-    'Avellaneda', 'Sarandí', 'Wilde', 'Lanús', 'Lomas de Zamora', 'Banfield', 'Quilmes', 'Bernal',
-    'Almirante Brown', 'Adrogué', 'Esteban Echeverría', 'Ezeiza', 'San Miguel', 'Malvinas Argentinas',
-    'José C. Paz', 'Pilar', 'Escobar', 'Merlo', 'Moreno', 'Berazategui', 'Florencio Varela'];
 
   var mapaRec = null;       // Mapa.Recorrido (se crea la primera vez que se muestra)
   var verMapa = false;
@@ -72,7 +64,15 @@
     Sesion.refrescar().then(function (nu) {
       if (nu) usuario = nu;
       if (!Store.reparto()) return recuperarDelServidor();
-    }).then(function () { render(); });
+    }).then(function () { render(); return traerDeSucursal(); });
+    // Etapa 4: las paradas que carga la sucursal llegan solas (al volver a la app, cada minuto,
+    // con señal de nuevo, y al instante si llega la notificación)
+    setInterval(function () { if (!document.hidden) traerDeSucursal(); }, 60000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) traerDeSucursal(); });
+    window.addEventListener('online', function () { traerDeSucursal(); });
+    if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', function (e) {
+      if (e.data && e.data.tipo === 'refrescar') traerDeSucursal();
+    });
   }
 
   function recuperarDelServidor() {
@@ -203,12 +203,12 @@
       v.innerHTML =
         '<div class="vacio">' +
         '<div class="vacio-icono">⌂</div>' +
-        '<h2>Primero, tu base</h2>' +
+        '<h2>Primero, tu sucursal</h2>' +
         (usuario
-          ? '<p>Tu sucursal todavía no tiene cargada la dirección de la base. Pedile al administrador que la cargue en el panel.</p>' +
-            '<button class="btn btn-sec" id="btn-base">Usar una base provisoria</button>'
-          : '<p>El recorrido sale de la base y vuelve a ella. Cargá la dirección una sola vez.</p>' +
-            '<button class="btn btn-pri" id="btn-base">Cargar dirección de la base</button>') +
+          ? '<p>Tu sucursal todavía no tiene cargada la dirección. Pedile al administrador que la cargue en el panel.</p>' +
+            '<button class="btn btn-sec" id="btn-base">Usar una dirección provisoria</button>'
+          : '<p>El recorrido sale de la sucursal y vuelve a ella. Cargá la dirección una sola vez.</p>' +
+            '<button class="btn btn-pri" id="btn-base">Cargar dirección de la sucursal</button>') +
         '</div>';
       $('#btn-base').addEventListener('click', editarBase);
       return;
@@ -220,7 +220,7 @@
       v.innerHTML = (ultimoFinalizado ? resumenFinal(ultimoFinalizado) : '') +
         '<div class="vacio">' +
         '<h2>' + (ultimoFinalizado ? 'Reparto cerrado' : 'Nuevo reparto') + '</h2>' +
-        '<p>Base: ' + esc(base().direccion) + '</p>' +
+        '<p>Sucursal: ' + esc(base().direccion) + '</p>' +
         '<button class="btn btn-pri btn-grande" id="btn-agregar">+ Agregar parada</button>' +
         '</div>';
       $('#btn-agregar').addEventListener('click', function () { abrirFormParada(null); });
@@ -248,7 +248,7 @@
       (r.km_estimados != null ? '<div class="totales">' +
         '<span>' + U.km(r.km_estimados * 1000) + '</span>' +
         '<span>' + U.duracion(r.min_estimados * 60) + '</span>' +
-        (r.regreso ? '<span>Vuelta a base ~' + r.regreso + '</span>' : '') +
+        (r.regreso ? '<span>Vuelta a la sucursal ~' + r.regreso + '</span>' : '') +
         '</div>' : '') +
       (r.fuente_tiempos === 'recta' ? '<p class="aviso-chico">Sin conexión al servidor de rutas: tiempos aproximados en línea recta.</p>' : '') +
       (r.hora_inicio ? '<p class="ayuda">Inicio ' + U.hora(r.hora_inicio) + '</p>' : '') +
@@ -288,9 +288,9 @@
     if (volviendo) {
       html += '<section class="tarjeta proxima vuelta">' +
         '<div class="prox-tit">Último paso</div>' +
-        '<div class="prox-dir">⌂ Vuelta a la base</div>' +
+        '<div class="prox-dir">⌂ Vuelta a la sucursal</div>' +
         '<div class="prox-sub">' + esc(r.base_direccion || base().direccion) + '</div>' +
-        '<button class="btn btn-pri btn-grande" data-nav-base>➤ Navegar a la base</button>' +
+        '<button class="btn btn-pri btn-grande" data-nav-base>➤ Navegar a la sucursal</button>' +
         '<button class="btn btn-ok btn-grande" id="btn-cerrar">✓ Llegué: cerrar reparto</button>' +
         '</section>';
     }
@@ -307,7 +307,7 @@
       html += '<ol class="paradas" id="lista-pend">' + pend.map(function (p) { return itemParada(r, p, true); }).join('') + '</ol>';
       if (pend.length && hayRuta) {
         html += '<div class="parada parada-base"><span class="num">⌂</span><div class="parada-txt">' +
-          '<div class="parada-dir">Vuelta a la base</div><div class="parada-sub">' + esc(r.base_direccion || base().direccion) + '</div></div>' +
+          '<div class="parada-dir">Vuelta a la sucursal</div><div class="parada-sub">' + esc(r.base_direccion || base().direccion) + '</div></div>' +
           '<div class="parada-der">' + (r.regreso ? '<span class="hora">~' + esc(r.regreso) + '</span>' : '') + '</div></div>';
       }
       if (pend.length > 1 && hayRuta) html += '<p class="ayuda centro">Mantené apretado ☰ y arrastrá para cambiar el orden.</p>';
@@ -361,7 +361,7 @@
   }
 
   function detallesChips(p) {
-    var c = '';
+    var c = p.origen === 'sucursal' ? '<span class="chip chip-suc">Sucursal</span>' : '';
     if (p.prioridad === 'urgente') c += '<span class="chip chip-urgente">Urgente</span>';
     if (p.prioridad === 'hora' && p.hora_limite) c += '<span class="chip chip-hora' + (p.aviso_horario ? ' chip-tarde' : '') + '">Antes de ' + esc(p.hora_limite) + '</span>';
     c += '<span class="chip chip-pago">' + esc(p.metodo_pago === 'otro' && p.metodo_pago_detalle ? p.metodo_pago_detalle : PAGOS[p.metodo_pago]) + '</span>';
@@ -424,7 +424,8 @@
     if (bce) bce.addEventListener('click', cerrarReparto);
     var bd = $('#btn-descartar');
     if (bd) bd.addEventListener('click', function () {
-      if (!confirm('¿Descartar el reparto y todas sus paradas?')) return;
+      var deSuc = Store.paradasVivas(r).some(function (p) { return p.origen === 'sucursal'; });
+      if (!confirm('¿Descartar el reparto y todas sus paradas?' + (deSuc ? '\n\nLas que cargó la sucursal van a volver a aparecer.' : ''))) return;
       descartar(r);
       render();
     });
@@ -684,7 +685,7 @@
   function verificarFin() {
     var r = Store.reparto();
     if (r && r.estado === 'en_curso' && !pendientes(r).length) {
-      setTimeout(function () { U.toast('¡Listo! No quedan paradas. Volvé a la base y cerrá el reparto.', 4500); }, 2700);
+      setTimeout(function () { U.toast('¡Listo! No quedan paradas. Volvé a la sucursal y cerrá el reparto.', 4500); }, 2700);
     }
   }
 
@@ -706,7 +707,9 @@
         '<div class="fila-2"><button class="btn btn-ok" data-ok="' + p.id + '">✓ Entregado</button>' +
         '<button class="btn btn-mal" data-no="' + p.id + '">✗ No entregado</button></div>' : '') +
       (!abierta ? '<button class="btn btn-sec" id="det-reabrir">Volver a pendiente</button>' : '') +
-      (abierta ? '<div class="fila-2"><button class="btn btn-sec" id="det-editar">Editar</button>' +
+      (abierta && p.origen === 'sucursal' ? '<button class="btn btn-sec" id="det-editar">Editar</button>' +
+        '<p class="ayuda">La cargó la sucursal: no se puede quitar. Si no la podés hacer, marcala <b>No entregado</b>.</p>' : '') +
+      (abierta && p.origen !== 'sucursal' ? '<div class="fila-2"><button class="btn btn-sec" id="det-editar">Editar</button>' +
         '<button class="btn btn-borde txt-mal" id="det-borrar">Quitar parada</button></div>' : '') +
       '<button class="btn-link" data-cerrar>Cerrar</button>');
     var h = $('#hoja');
@@ -737,7 +740,7 @@
     var pend = pendientes(r);
     var msg = pend.length
       ? 'Quedan ' + pend.length + ' parada(s) sin marcar. Van a quedar como pendientes.\n\n¿Cerrar el reparto igual?'
-      : '¿Llegaste a la base? Se cierra el reparto del día.';
+      : '¿Llegaste a la sucursal? Se cierra el reparto del día.';
     if (!confirm(msg)) return;
     if (r.estado === 'armado') Store.iniciar(r);
     ultimoFinalizado = Store.finalizar(r);
@@ -746,118 +749,113 @@
     render();
   }
 
-  // ── Formulario de parada ───────────────────────────────────────────────
-  function opcionesLocalidad() {
-    var barrios = Routing.LOCALIDADES.map(function (b) {
-      return b.replace(/(^|\s)\S/g, function (c) { return c.toUpperCase(); });
-    });
-    return '<datalist id="dl-localidades">' + barrios.concat(LOC_GBA).map(function (l) {
-      return '<option value="' + esc(l) + '">';
-    }).join('') + '</datalist>';
-  }
-
+  // ── Formulario de parada (compartido con el panel: js/form-parada.js) ──
   function abrirFormParada(id) {
     var r = Store.reparto();
     var p = id && r ? Store.parada(r, id) : null;
-    var d = p || { direccion: '', localidad: '', telefono: '', metodo_pago: 'efectivo', metodo_pago_detalle: '', nota: '', prioridad: 'normal', hora_limite: '' };
-    var geo = p && p.lat != null ? { lat: p.lat, lng: p.lng, fuente: p.geo_fuente } : null;
+    FormParada.abrir({
+      datos: p,
+      alGuardar: function (x) {
+        var rr = repartoOCrear();
+        var enCurso = rr.estado === 'en_curso';
+        if (p) {
+          Store.editarParada(rr, p.id, x);
+        } else {
+          if (Store.paradasVivas(rr).length >= CONFIG.MAX_PARADAS) { U.toast('Máximo ' + CONFIG.MAX_PARADAS + ' paradas'); return; }
+          Store.nuevaParada(rr, x);
+        }
+        cerrarHoja();
+        Ubicador.cerrar();
+        rr = Store.reparto();
+        if (enCurso) {
+          // Con el reparto en curso se recalculan solo las pendientes, desde donde está el chofer
+          U.toast(p ? 'Parada actualizada. Recalculando…' : 'Parada agregada. Recalculando desde tu ubicación…');
+          armarRecorrido({ usarGPS: true });
+        } else {
+          if (rr.hora_armado) { rr.ruta_vieja = true; Store.guardarReparto(rr); }
+          U.toast(p ? 'Parada actualizada ✓' : 'Parada agregada ✓');
+          render();
+        }
+      },
+    });
+  }
 
-    abrirHoja('<h2>' + (p ? 'Editar parada' : 'Nueva parada') + '</h2>' +
-      '<form id="f-parada" autocomplete="off">' +
-      '<label class="campo"><span>Dirección *</span><input id="f-dir" required placeholder="Ej: Av. Cabildo 2040" value="' + esc(d.direccion) + '"></label>' +
-      '<label class="campo"><span>Localidad o barrio</span><input id="f-loc" list="dl-localidades" placeholder="Ej: Belgrano, Morón, Olivos" value="' + esc(d.localidad) + '"></label>' +
-      opcionesLocalidad() +
-      '<label class="campo"><span>Teléfono</span><input id="f-tel" type="tel" inputmode="tel" placeholder="Ej: 11 6455-4602" value="' + esc(d.telefono || '') + '"></label>' +
-      '<div class="campo"><span>Pago</span><div class="seg" id="f-pago">' + PAGOS_FORM.concat(PAGOS_FORM.indexOf(d.metodo_pago) < 0 ? [d.metodo_pago] : []).map(function (k) {
-        return '<button type="button" data-v="' + k + '" class="' + (d.metodo_pago === k ? 'sel' : '') + '">' + PAGOS[k] + '</button>';
-      }).join('') + '</div>' +
-      '<input id="f-pago-det" placeholder="¿Cuál?" value="' + esc(d.metodo_pago_detalle) + '"' + (d.metodo_pago === 'otro' ? '' : ' hidden') + '></div>' +
-      '<div class="campo"><span>Prioridad</span><div class="seg" id="f-prio">' +
-      '<button type="button" data-v="normal" class="' + (d.prioridad === 'normal' ? 'sel' : '') + '">Normal</button>' +
-      '<button type="button" data-v="urgente" class="' + (d.prioridad === 'urgente' ? 'sel' : '') + '">Urgente</button>' +
-      '<button type="button" data-v="hora" class="' + (d.prioridad === 'hora' ? 'sel' : '') + '">Antes de…</button>' +
-      '</div><input id="f-hora" type="time" value="' + esc(d.hora_limite) + '"' + (d.prioridad === 'hora' ? '' : ' hidden') + '></div>' +
-      '<label class="campo"><span>Nota</span><textarea id="f-nota" rows="2" placeholder="Timbre, horario, qué lleva…">' + esc(d.nota) + '</textarea></label>' +
-      '<p id="f-geo" class="ayuda">' + (geo ? '📍 Ubicada en el mapa' : '') + '</p>' +
-      '<button type="submit" class="btn btn-pri btn-grande">' + (geo ? 'Guardar' : 'Ubicar en el mapa') + '</button>' +
-      (geo ? '<button type="button" class="btn btn-sec" id="f-reubicar">Ver o corregir en el mapa</button>' : '') +
-      '<button type="button" class="btn-link" data-cerrar>Cancelar</button>' +
-      '</form>', true);
-
-    function segmento(sel, alCambiar) {
-      $$('#' + sel + ' button').forEach(function (b) {
-        b.addEventListener('click', function () {
-          $$('#' + sel + ' button').forEach(function (x) { x.classList.toggle('sel', x === b); });
-          alCambiar(b.dataset.v);
-        });
-      });
+  // ── Paradas que carga la sucursal (etapa 4) ──────────────────────────────
+  // El servidor devuelve las de hoy que nadie tomó todavía. Las nuevas se suman al reparto (o se
+  // arma uno); si la sucursal corrigió o quitó alguna que ya estaba en el celular, se actualiza.
+  // Quedan "tomadas" cuando el reparto se arma y viajan al servidor en el sync de siempre.
+  var trayendoSuc = false, reintentoSuc = null;
+  function traerDeSucursal() {
+    if (!usuario || !esRepartidor() || !usuario.sucursal_id || !Api.activa() || trayendoSuc) return Promise.resolve();
+    if (Hoja.abierta() || Ubicador.abierto() || ocupado) {
+      // Con un formulario abierto no se toca nada: se prueba de nuevo en un rato
+      clearTimeout(reintentoSuc);
+      reintentoSuc = setTimeout(traerDeSucursal, 15000);
+      return Promise.resolve();
     }
-    var pago = d.metodo_pago, prio = d.prioridad;
-    segmento('f-pago', function (v) { pago = v; $('#f-pago-det').hidden = v !== 'otro'; if (v === 'otro') $('#f-pago-det').focus(); });
-    segmento('f-prio', function (v) { prio = v; $('#f-hora').hidden = v !== 'hora'; if (v === 'hora') $('#f-hora').focus(); });
+    trayendoSuc = true;
+    return Api.llamar('sucursal.pendientes', { fecha: U.hoy() })
+      .then(function (res) { if (res.ok) aplicarDeSucursal(res.paradas || []); })
+      .catch(function () { /* sin señal: la próxima vez */ })
+      .finally(function () { trayendoSuc = false; });
+  }
 
-    var dirOriginal = U.normalizar(d.direccion + '|' + d.localidad);
+  var CAMPOS_SUC = ['direccion', 'localidad', 'telefono', 'metodo_pago', 'metodo_pago_detalle', 'nota',
+    'prioridad', 'hora_limite', 'lat', 'lng', 'geo_fuente'];
 
-    function datos() {
-      return {
-        direccion: $('#f-dir').value.trim(),
-        localidad: $('#f-loc').value.trim(),
-        telefono: $('#f-tel').value.trim(),
-        metodo_pago: pago,
-        metodo_pago_detalle: pago === 'otro' ? $('#f-pago-det').value.trim() : '',
-        prioridad: prio,
-        hora_limite: prio === 'hora' ? $('#f-hora').value : '',
-        nota: $('#f-nota').value.trim(),
-      };
-    }
+  function aplicarDeSucursal(lista) {
+    var r = Store.reparto();
+    if (r && r.fecha !== U.hoy()) return;   // quedó abierto un reparto de otro día: primero se cierra ese
+    var locales = {};
+    if (r) r.paradas.forEach(function (p) { locales[p.id] = p; });
+    var nuevas = [], quitadas = [], cambiadas = [];
+    lista.forEach(function (s) {
+      var l = locales[s.id];
+      var abierta = l && !l.eliminada && (l.estado === 'pendiente' || l.estado === 'en_camino');
+      if (s.eliminada) { if (abierta) quitadas.push(s); return; }
+      if (!l) nuevas.push(s);
+      else if (abierta && (s.actualizado_ts || 0) > (l.srv_ts || 0)) cambiadas.push(s);
+    });
+    if (!nuevas.length && !quitadas.length && !cambiadas.length) return;
 
-    function validar(x) {
-      if (!x.direccion) { U.toast('Falta la dirección'); $('#f-dir').focus(); return false; }
-      if (x.prioridad === 'hora' && !x.hora_limite) { U.toast('Poné la hora límite'); return false; }
-      if (x.telefono && !U.telAR(x.telefono)) { U.toast('Revisá el teléfono: con característica, ej. 11 6455-4602'); $('#f-tel').focus(); return false; }
-      return true;
-    }
-
-    function guardar(x, g) {
-      x.lat = g.lat; x.lng = g.lng; x.geo_fuente = g.fuente || 'manual';
-      Routing.recordarGeo(x.direccion, x.localidad, g);
-      var rr = repartoOCrear();
-      var enCurso = rr.estado === 'en_curso';
-      if (p) {
-        Store.editarParada(rr, p.id, x);
-      } else {
-        if (Store.paradasVivas(rr).length >= CONFIG.MAX_PARADAS) { U.toast('Máximo ' + CONFIG.MAX_PARADAS + ' paradas'); return; }
-        Store.nuevaParada(rr, x);
-      }
-      cerrarHoja();
-      Ubicador.cerrar();
+    var rr = r || repartoOCrear();
+    var lugar = Store.paradasVivas(rr).length;
+    var agregadas = 0, moverRuta = false;
+    nuevas.forEach(function (s) {
+      if (lugar >= CONFIG.MAX_PARADAS) return;
+      Store.sumarParada(rr, Object.assign({}, s, {
+        reparto_id: rr.id, orden: ++lugar, eta: null, aviso_horario: false, srv_ts: s.actualizado_ts,
+      }));
+      agregadas++;
+    });
+    cambiadas.forEach(function (s) {
+      var l = Store.parada(rr, s.id);
+      if (l.lat !== s.lat || l.lng !== s.lng || l.prioridad !== s.prioridad || l.hora_limite !== s.hora_limite) moverRuta = true;
+      var cambios = { srv_ts: s.actualizado_ts };
+      CAMPOS_SUC.forEach(function (c) { cambios[c] = s[c]; });
+      Store.editarParada(rr, s.id, cambios);
+    });
+    if (quitadas.length) {
+      // Nunca llegaron al servidor como tomadas: se sacan del celular sin mandar nada
+      var ids = quitadas.map(function (s) { return s.id; });
       rr = Store.reparto();
-      if (enCurso) {
-        // Con el reparto en curso se recalculan solo las pendientes, desde donde está el chofer
-        U.toast(p ? 'Parada actualizada. Recalculando…' : 'Parada agregada. Recalculando desde tu ubicación…');
-        armarRecorrido({ usarGPS: true });
-      } else {
-        if (rr.hora_armado) { rr.ruta_vieja = true; Store.guardarReparto(rr); }
-        U.toast(p ? 'Parada actualizada ✓' : 'Parada agregada ✓');
-        render();
-      }
+      rr.paradas = rr.paradas.filter(function (p) { return ids.indexOf(p.id) < 0; });
+      Store.guardarReparto(rr);
     }
 
-    $('#f-parada').addEventListener('submit', function (e) {
-      e.preventDefault();
-      var x = datos();
-      if (!validar(x)) return;
-      var cambioDir = U.normalizar(x.direccion + '|' + x.localidad) !== dirOriginal;
-      if (geo && !cambioDir) { guardar(x, geo); return; }
-      Ubicador.abrir(x.direccion, x.localidad, null, function (g) { guardar(x, g); });
-    });
-    var reu = $('#f-reubicar');
-    if (reu) reu.addEventListener('click', function () {
-      var x = datos();
-      if (!validar(x)) return;
-      Ubicador.abrir(x.direccion, x.localidad, geo, function (g) { guardar(x, g); });
-    });
-    if (!p) setTimeout(function () { $('#f-dir').focus(); }, 250);
+    var partes = [];
+    if (agregadas) partes.push(agregadas === 1 ? 'agregó una parada' : 'agregó ' + agregadas + ' paradas');
+    if (cambiadas.length) partes.push(cambiadas.length === 1 ? 'corrigió una' : 'corrigió ' + cambiadas.length);
+    if (quitadas.length) partes.push(quitadas.length === 1 ? 'quitó una' : 'quitó ' + quitadas.length);
+    U.vibrar([200, 100, 200]);
+    U.toast('📦 La sucursal ' + partes.join(', ') +
+      (nuevas.length > agregadas ? '. No entran más de ' + CONFIG.MAX_PARADAS + ' paradas.' : ''), 5000);
+
+    rr = Store.reparto();
+    if (rr.hora_armado && pendientes(rr).length && (agregadas || quitadas.length || moverRuta)) {
+      // Con el reparto en curso se recalculan las pendientes desde donde está el chofer
+      armarRecorrido(rr.estado === 'en_curso' ? { usarGPS: true, silencioso: true } : { silencioso: true });
+    } else render();
   }
 
   // ── Ajustes ────────────────────────────────────────────────────────────
@@ -871,9 +869,9 @@
         (usuario.sucursal ? ' · ' + esc(usuario.sucursal.nombre) : '') + '</p>' +
         (verPanel ? '<a class="btn btn-sec" href="panel.html">Ir al panel</a>' : '') +
         '<button class="btn btn-borde" id="aj-salir">Cerrar sesión</button></div>' : '') +
-      (esRepartidor() ? '<div class="campo"><span>Base</span><p>' + (b ? esc(b.direccion) : '<em>Sin cargar</em>') +
+      (esRepartidor() ? '<div class="campo"><span>Sucursal</span><p>' + (b ? esc(b.direccion) : '<em>Sin cargar</em>') +
       (b && b.servidor ? '<br><small class="ayuda">La carga el administrador desde el panel.</small>' : '') + '</p>' +
-      (b && b.servidor ? '' : '<button class="btn btn-sec" id="aj-base">' + (b ? 'Cambiar base' : 'Cargar base') + '</button>') + '</div>' +
+      (b && b.servidor ? '' : '<button class="btn btn-sec" id="aj-base">' + (b ? 'Cambiar dirección' : 'Cargar dirección') + '</button>') + '</div>' +
       '<label class="campo"><span>Minutos en cada parada</span><input id="aj-min" type="number" min="1" max="30" inputmode="numeric" value="' + a.min_por_parada + '"></label>' : '') +
       (window.Push && Push.disponible() ? '<div class="campo"><span>Notificaciones</span>' +
         (Notification.permission === 'granted' ? '<p>🔔 Activadas</p>' : Push.aviso()) + '</div>' : '') +
@@ -912,11 +910,11 @@
 
   function editarBase() {
     var b = Store.ajustes().base || { direccion: '', localidad: '' };
-    abrirHoja('<h2>Dirección de la base</h2>' +
+    abrirHoja('<h2>Dirección de la sucursal</h2>' +
       '<form id="f-base" autocomplete="off">' +
       '<label class="campo"><span>Dirección *</span><input id="b-dir" required placeholder="Ej: Av. Triunvirato 4500" value="' + esc(b.direccion_sola || b.direccion) + '"></label>' +
       '<label class="campo"><span>Localidad o barrio</span><input id="b-loc" list="dl-localidades" value="' + esc(b.localidad || '') + '"></label>' +
-      opcionesLocalidad() +
+      FormParada.opcionesLocalidad() +
       '<button class="btn btn-pri btn-grande" type="submit">Ubicar en el mapa</button>' +
       '<button type="button" class="btn-link" data-cerrar>Cancelar</button></form>', true);
     $('#f-base').addEventListener('submit', function (e) {
@@ -936,7 +934,7 @@
           Store.guardarReparto(r);
         }
         cerrarHoja();
-        U.toast('Base guardada ✓');
+        U.toast('Dirección guardada ✓');
         render();
       });
     });

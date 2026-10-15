@@ -1,5 +1,5 @@
 // Reparto TyM — panel de seguimiento. Cambia según el rol:
-//   sucursal → los repartos de su sucursal, día por día
+//   sucursal → los repartos de su sucursal, día por día, y carga las paradas del repartidor (etapa 4)
 //   dueño    → todas sus sucursales + resumen mensual
 //   admin    → todo, más administración de usuarios, clientes y sucursales
 // Lo que se ve lo decide el servidor: el panel solo muestra lo que el script le devuelve.
@@ -205,6 +205,7 @@
 
     html += '<h2 class="p-titulo">' + (esHoy ? 'Hoy, ' : '') + fechaTxt + '</h2>';
     html += tiras(c, st.rol !== 'sucursal' ? '<div class="p-tira"><b>' + totalReps + '</b><span>repartos</span></div>' : '');
+    html += seccionSinTomar(d);
 
     // Sucursal con varios choferes: una fila por reparto
     if (st.rol === 'sucursal' && d.repartos.length > 1) {
@@ -255,6 +256,90 @@
     $$('details.p-reparto').forEach(function (det) {
       det.addEventListener('toggle', function () { st.abiertos[det.dataset.id] = det.open; });
     });
+    var bc = $('#p-cargar');
+    if (bc) bc.addEventListener('click', function () { formSucursal(null); });
+    $$('[data-editar]').forEach(function (b) {
+      b.addEventListener('click', function () { formSucursal(sinTomar(b.dataset.editar)); });
+    });
+    $$('[data-quitar]').forEach(function (b) {
+      b.addEventListener('click', function () { quitarSinTomar(sinTomar(b.dataset.quitar)); });
+    });
+  }
+
+  // ── Etapa 4: paradas que carga la sucursal para su repartidor ───────────
+  // Quedan "sin tomar" hasta que el repartidor las suma a su recorrido; mientras tanto se pueden
+  // corregir o quitar. Después aparecen dentro de su reparto, como cualquier otra parada.
+  function puedeCargar() { return st.rol === 'sucursal' || st.rol === 'admin'; }
+  function sinTomar(id) { return (st.dia.sin_tomar || []).filter(function (p) { return p.id === id; })[0]; }
+
+  function chipsParada(p) {
+    return '<div class="chips">' +
+      (p.prioridad === 'urgente' ? '<span class="chip chip-urgente">Urgente</span>' : '') +
+      (p.prioridad === 'hora' && p.hora_limite ? '<span class="chip chip-hora' + (p.aviso_horario && p.estado === 'pendiente' ? ' chip-tarde' : '') + '">Antes de ' + esc(p.hora_limite) + '</span>' : '') +
+      '<span class="chip chip-pago">' + esc(p.metodo_pago === 'otro' && p.metodo_pago_detalle ? p.metodo_pago_detalle : PAGOS[p.metodo_pago] || '') + '</span>' +
+      '</div>';
+  }
+
+  function seccionSinTomar(d) {
+    var lista = (d.sin_tomar || []).slice().sort(function (a, b) { return String(a.hora_pendiente).localeCompare(String(b.hora_pendiente)); });
+    var cargar = puedeCargar() && d.fecha >= U.hoy();
+    if (!lista.length && !cargar) return '';
+    var sucNom = {};
+    d.sucursales.forEach(function (s) { sucNom[s.id] = s.nombre; });
+    var varias = d.sucursales.length > 1;
+    var html = '<section class="tarjeta p-sin-tomar">' +
+      '<div class="p-rep-cab"><strong>Para el repartidor</strong>' +
+      (lista.length ? '<span class="chip chip-r-armado">' + lista.length + ' sin tomar</span>' : '') + '</div>' +
+      '<p class="ayuda">' + (lista.length
+        ? 'Ya le aparecen en el celular. Mientras no arme el recorrido, las podés corregir o quitar.'
+        : 'Cargá acá las entregas: le aparecen al repartidor en el celular, listas para armar el recorrido.') + '</p>';
+    if (lista.length) {
+      html += '<ol class="p-paradas">' + lista.map(function (p, i) {
+        return '<li class="p-parada">' +
+          '<span class="num">' + (i + 1) + '</span>' +
+          '<div class="parada-txt"><div class="parada-dir">' + esc(p.direccion) + '</div>' +
+          '<div class="parada-sub">' + esc([varias ? sucNom[p.sucursal_id] : '', p.localidad, p.telefono ? '📞 ' + p.telefono : ''].filter(Boolean).join(' · ')) + '</div>' +
+          chipsParada(p) +
+          (p.nota ? '<div class="ayuda chico">' + esc(p.nota) + '</div>' : '') +
+          (puedeCargar() ? '<div class="p-acc"><button class="btn-link" data-editar="' + esc(p.id) + '">Corregir</button>' +
+            '<button class="btn-link txt-mal" data-quitar="' + esc(p.id) + '">Quitar</button></div>' : '') +
+          '</div>' +
+          '<div class="parada-der"><span class="hora">' + U.hora(p.hora_pendiente) + '</span></div></li>';
+      }).join('') + '</ol>';
+    }
+    if (cargar) html += '<button class="btn btn-pri" id="p-cargar">+ Cargar parada</button>';
+    return html + '</section>';
+  }
+
+  function formSucursal(p) {
+    var d = st.dia;
+    FormParada.abrir({
+      titulo: p ? 'Corregir parada' : 'Nueva parada para el repartidor',
+      datos: p || null,
+      // El admin elige para qué sucursal; la sucursal carga siempre para la suya
+      sucursales: !p && st.rol === 'admin' ? d.sucursales : null,
+      alGuardar: function (x) {
+        if (p) x.id = p.id; else x.fecha = d.fecha;
+        Hoja.cargando('Guardando…');
+        Api.llamar('sucursal.parada', x).then(function (r) {
+          if (!r.ok) { U.toast(r.error, 5000); return; }
+          Hoja.cerrar();
+          U.toast(p ? 'Parada corregida ✓' : r.avisados ? 'Parada cargada ✓ Le llegó el aviso al repartidor' : 'Parada cargada ✓', 4000);
+          cargarDia(false);
+        }).catch(function () {
+          U.toast('Sin conexión: no se guardó. Probá de nuevo.', 4500);
+        }).finally(function () { Hoja.cargando(null); });
+      },
+    });
+  }
+
+  function quitarSinTomar(p) {
+    if (!p || !confirm('¿Quitar ' + p.direccion + '? El repartidor deja de verla.')) return;
+    Api.llamar('sucursal.parada', { id: p.id, eliminada: true }).then(function (r) {
+      if (!r.ok) { U.toast(r.error, 5000); cargarDia(false); return; }
+      U.toast('Parada quitada ✓');
+      cargarDia(false);
+    }).catch(function () { U.toast('Sin conexión: no se quitó. Probá de nuevo.', 4500); });
   }
 
   function tarjetaReparto(r, paradas) {
@@ -278,11 +363,7 @@
           '<span class="num">' + (i + 1) + '</span>' +
           '<div class="parada-txt"><div class="parada-dir">' + esc(p.direccion) + '</div>' +
           '<div class="parada-sub">' + esc([p.localidad, p.cliente_final, p.telefono ? '📞 ' + p.telefono : ''].filter(Boolean).join(' · ')) + '</div>' +
-          '<div class="chips">' +
-          (p.prioridad === 'urgente' ? '<span class="chip chip-urgente">Urgente</span>' : '') +
-          (p.prioridad === 'hora' && p.hora_limite ? '<span class="chip chip-hora' + (p.aviso_horario && p.estado === 'pendiente' ? ' chip-tarde' : '') + '">Antes de ' + esc(p.hora_limite) + '</span>' : '') +
-          '<span class="chip chip-pago">' + esc(p.metodo_pago === 'otro' && p.metodo_pago_detalle ? p.metodo_pago_detalle : PAGOS[p.metodo_pago] || '') + '</span>' +
-          '</div>' +
+          chipsParada(p).replace('<div class="chips">', '<div class="chips">' + (p.origen === 'sucursal' ? '<span class="chip chip-suc">Sucursal</span>' : '')) +
           (p.estado === 'no_entregado' ? '<div class="txt-mal chico">' + esc(MOTIVOS[p.motivo] || '') + (p.motivo_detalle ? ': ' + esc(p.motivo_detalle) : '') + '</div>' : '') +
           (p.estado === 'entregado' && p.recibio ? '<div class="txt-ok chico">Recibió: ' + esc(p.recibio) + '</div>' : '') +
           (p.nota ? '<div class="ayuda chico">' + esc(p.nota) + '</div>' : '') +

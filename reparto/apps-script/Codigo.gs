@@ -13,7 +13,7 @@
  */
 
 var TZ = 'America/Argentina/Buenos_Aires';
-var VERSION_API = '3.3.0';
+var VERSION_API = '4.0.0';
 var DIAS_SESION_CHOFER = 30;
 var DIAS_SESION_PANEL = 7;
 var MAX_INTENTOS = 5;
@@ -111,6 +111,8 @@ var ACCIONES = {
   'unidades.asignar':    { escribe: true, roles: ['admin'], fn: accUnidadesAsignar },
   'unidades.estados':    { roles: ['admin'], fn: accUnidadesEstados },
   'push.registrar':      { escribe: true, fn: accPushRegistrar },
+  'sucursal.parada':     { escribe: true, roles: ['admin', 'sucursal'], fn: accSucursalParada },
+  'sucursal.pendientes': { roles: ['repartidor'], fn: accSucursalPendientes },
 };
 
 // Separado de doPost para poder probarlo y para la verificación por rol
@@ -509,7 +511,9 @@ function accSync(ctx, d) {
       var fila = Object.assign({}, viejo || { id: id, total_paradas: 0, entregadas: 0, no_entregadas: 0 }, nuevo, {
         repartidor_id: u.id, cliente_id: u.cliente_id, sucursal_id: u.sucursal_id,
       });
+      var descartado = fila.eliminado && !(viejo && viejo.eliminado);   // antes de guardar: guardar pisa a "viejo"
       tR.guardar(fila);
+      if (descartado) liberarParadasSucursal(db, id);
       tocados[id] = true;
       aplicados.push(id);
     } catch (err) {
@@ -527,6 +531,14 @@ function accSync(ctx, d) {
       var rep = tR.buscar(nuevo.reparto_id || (viejo && viejo.reparto_id));
       if (!rep) throw new Falla('El reparto de la parada no existe');
       if (rep.repartidor_id !== u.id) throw new Falla('La parada es de otro repartidor', 'permiso');
+      // Paradas que cargó la sucursal (etapa 4)
+      if (viejo && viejo.origen === 'sucursal') {
+        // Sin tomar todavía: solo la puede tomar un repartidor de esa misma sucursal
+        if (!viejo.reparto_id && viejo.sucursal_id !== u.sucursal_id) throw new Falla('La parada es de otra sucursal', 'permiso');
+        if (!viejo.reparto_id && viejo.eliminada) throw new Falla('La sucursal quitó esta parada');
+        if (nuevo.eliminada === true && !viejo.eliminada) throw new Falla('Las paradas de la sucursal no se pueden quitar');
+        if (rep.eliminado) throw new Falla('El reparto se descartó');
+      }
       if (viejo && viejo.reparto_id && viejo.reparto_id !== rep.id) {
         var repViejo = tR.buscar(viejo.reparto_id);
         if (!repViejo || repViejo.repartidor_id !== u.id) throw new Falla('La parada es de otro repartidor', 'permiso');
@@ -639,6 +651,9 @@ function accPanelDia(ctx, d) {
       return o;
     }),
     paradas: ps.map(function (p) { return tomar(p, CAMPOS_PARADA_PANEL); }),
+    sin_tomar: db.t('Paradas').filtrar(function (p) {
+      return p.origen === 'sucursal' && !p.reparto_id && !p.eliminada && p.fecha === fecha && sucIds.indexOf(p.sucursal_id) >= 0;
+    }).map(function (p) { return tomar(p, CAMPOS_PARADA_PANEL); }),
   };
 }
 
@@ -668,6 +683,113 @@ function accPanelMes(ctx, d) {
       return o;
     }),
   };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Etapa 4: paradas que carga la sucursal
+// Quedan con origen 'sucursal' y reparto_id vacío hasta que el repartidor de esa sucursal las
+// toma (su app las suma al reparto y las manda en el próximo sync). Mientras nadie las tomó, la
+// sucursal las puede corregir o quitar; después ya no: el chofer las tiene en el celular.
+// ════════════════════════════════════════════════════════════════════════
+
+var CAMPOS_PARADA_SUCURSAL = ['direccion', 'localidad', 'telefono', 'metodo_pago', 'metodo_pago_detalle',
+  'nota', 'prioridad', 'hora_limite', 'lat', 'lng', 'geo_fuente'];
+var MAX_SIN_TOMAR = 80;   // por sucursal y por día
+
+// La sucursal con la que trabaja el usuario: la suya, o la que elige el admin
+function sucursalDe(db, u, sucursalId) {
+  var esAdmin = tiene(u, 'admin');
+  var id = esAdmin ? texto(sucursalId, 80) : u.sucursal_id;
+  var s = id ? db.t('Sucursales').buscar(id) : null;
+  if (!s || !s.activo) throw new Falla(esAdmin ? 'Elegí la sucursal' : 'Tu usuario no tiene sucursal asignada', 'permiso');
+  return s;
+}
+
+function accSucursalParada(ctx, d) {
+  var db = ctx.db, u = ctx.usuario, t = db.t('Paradas');
+  var id = texto(d.id, 80);
+  var viejo = id ? t.buscar(id) : null;
+  if (id && !viejo) throw new Falla('La parada no existe');
+  var suc = sucursalDe(db, u, viejo ? viejo.sucursal_id : d.sucursal_id);
+  if (viejo) {
+    if (viejo.origen !== 'sucursal' || viejo.sucursal_id !== suc.id) throw new Falla('Esa parada no es de tu sucursal', 'permiso');
+    if (viejo.eliminada) throw new Falla('La parada ya estaba quitada');
+    if (viejo.reparto_id) throw new Falla('El repartidor ya la tiene en su recorrido. Avisale por teléfono.');
+  }
+
+  if (d.eliminada === true) {
+    if (!viejo) throw new Falla('La parada no existe');
+    viejo.eliminada = true;
+    viejo.actualizado_ts = Date.now();
+    t.guardar(viejo);
+    return { parada: tomar(viejo, CAMPOS_PARADA_PANEL) };
+  }
+
+  var fecha = viejo ? viejo.fecha : (esFecha(d.fecha) ? d.fecha : hoy());
+  if (!viejo) {
+    if (fecha < hoy()) throw new Falla('No se pueden cargar paradas en días que ya pasaron');
+    var cargadas = t.filtrar(function (p) {
+      return p.origen === 'sucursal' && p.sucursal_id === suc.id && p.fecha === fecha && !p.reparto_id && !p.eliminada;
+    }).length;
+    if (cargadas >= MAX_SIN_TOMAR) throw new Falla('Hay demasiadas paradas sin tomar para ese día');
+  }
+  var fila = Object.assign({}, viejo || {
+    id: nuevoId('par'), reparto_id: '', cliente_id: suc.cliente_id, sucursal_id: suc.id, fecha: fecha,
+    origen: 'sucursal', creado_por: u.id, orden: null, estado: 'pendiente', hora_pendiente: ahoraISO(),
+    cliente_final: '', recibio: '', eta: '', aviso_horario: false, motivo: '', motivo_detalle: '', eliminada: false,
+    metodo_pago: 'efectivo', prioridad: 'normal', hora_limite: '',
+  }, tomar(d, CAMPOS_PARADA_SUCURSAL), { actualizado_ts: Date.now() });
+  if (fila.prioridad !== 'hora') fila.hora_limite = '';
+  validarParada(fila);
+  if (fila.lat === null || fila.lng === null) throw new Falla('Falta ubicar la dirección en el mapa');
+  if (fila.prioridad === 'hora' && !fila.hora_limite) throw new Falla('Falta la hora límite');
+  t.guardar(fila);
+  return { parada: tomar(fila, CAMPOS_PARADA_PANEL), avisados: viejo ? 0 : avisarRepartidores(db, fila) };
+}
+
+// Si el repartidor de la sucursal ya armó o salió con su reparto de hoy, le llega una notificación
+// y su app suma la parada y recalcula. Si todavía no armó nada, la ve al abrir la app.
+function avisarRepartidores(db, p) {
+  if (p.fecha !== hoy()) return 0;
+  var ids = {};
+  db.t('Repartos').filtrar(function (r) {
+    return r.fecha === p.fecha && r.sucursal_id === p.sucursal_id && !r.eliminado && r.estado !== 'finalizado';
+  }).forEach(function (r) { ids[r.repartidor_id] = true; });
+  var n = 0;
+  Object.keys(ids).forEach(function (uid) {
+    if (enviarPush(db, uid, '📦 Nueva parada de la sucursal', p.direccion + (p.localidad ? ', ' + p.localidad : ''), { tipo: 'parada', id: p.id })) n++;
+  });
+  return n;
+}
+
+// Las paradas de la sucursal que el repartidor todavía no tomó. Van también las quitadas: si el
+// celular ya las había sumado y todavía no las mandó, así sabe que tiene que sacarlas.
+function accSucursalPendientes(ctx, d) {
+  var u = ctx.usuario;
+  var fecha = esFecha(d.fecha) ? d.fecha : hoy();
+  if (!u.sucursal_id) return { fecha: fecha, paradas: [] };
+  var campos = ['id', 'origen', 'cliente_id', 'sucursal_id'].concat(CAMPOS_PARADA);
+  var ps = ctx.db.t('Paradas').filtrar(function (p) {
+    return p.origen === 'sucursal' && p.sucursal_id === u.sucursal_id && p.fecha === fecha && !p.reparto_id;
+  });
+  return { fecha: fecha, paradas: ps.map(function (p) { return tomar(p, campos); }) };
+}
+
+// Reparto descartado: las paradas de la sucursal que no se hicieron vuelven a quedar para tomar
+function liberarParadasSucursal(db, repartoId) {
+  var t = db.t('Paradas');
+  t.filtrar(function (p) {
+    return p.reparto_id === repartoId && p.origen === 'sucursal' && !p.eliminada && (p.estado === 'pendiente' || p.estado === 'en_camino');
+  }).forEach(function (p) {
+    p.reparto_id = '';
+    p.estado = 'pendiente';
+    p.orden = null;
+    p.eta = '';
+    p.aviso_horario = false;
+    p.hora_en_camino = '';
+    p.actualizado_ts = Date.now();
+    t.guardar(p);
+  });
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1295,6 +1417,10 @@ function correrVerificacion() {
       });
       var repIds = r.repartos.map(function (x) { return x.id; });
       var paradasAjenas = r.paradas.filter(function (p) { return repIds.indexOf(p.reparto_id) < 0; });
+      var sinTomarAjenas = (r.sin_tomar || []).filter(function (p) {
+        var suc = db.t('Sucursales').buscar(p.sucursal_id);
+        return veSuc ? p.sucursal_id !== u.sucursal_id : veDuenio ? !suc || suc.cliente_id !== u.cliente_id : false;
+      });
       var sucAjenas = r.sucursales.filter(function (s) {
         return veSuc ? s.id !== u.sucursal_id : veDuenio ? s.cliente_id !== u.cliente_id : false;
       });
@@ -1304,10 +1430,11 @@ function correrVerificacion() {
         var suc = db.t('Sucursales').buscar(x.sucursal_id);
         return veSuc ? x.sucursal_id === u.sucursal_id : suc && suc.cliente_id === u.cliente_id;
       }).length;
-      var ok = !ajenos.length && !paradasAjenas.length && !sucAjenas.length && sinSecretos(r) && r.repartos.length === esperados;
+      var ok = !ajenos.length && !paradasAjenas.length && !sucAjenas.length && !sinTomarAjenas.length && sinSecretos(r) && r.repartos.length === esperados;
       anotar(ok, rol, u, 'panel.dia ' + f, r.repartos.length + ' repartos / ' + r.paradas.length + ' paradas' +
         (ajenos.length ? ' · ' + ajenos.length + ' repartos AJENOS' : '') +
         (sucAjenas.length ? ' · sucursales ajenas' : '') +
+        (sinTomarAjenas.length ? ' · ' + sinTomarAjenas.length + ' paradas sin tomar AJENAS' : '') +
         (r.repartos.length !== esperados ? ' · esperaba ' + esperados : ''));
     });
 
@@ -1367,6 +1494,16 @@ function correrVerificacion() {
         anotar(sf.ok && sf.rechazados.length === 1 && !sf.aplicados.length, rol, u, 'sync flete ajeno', sf.ok ? (sf.rechazados.length ? 'rechazado' : 'APLICADO') : sf.error);
       }
     }
+
+    // Etapa 4: cargar paradas solo sucursal y admin; las sin tomar, solo las de la propia sucursal
+    var sp = llamar(tk, 'sucursal.parada', { id: 'par_no_existe' });
+    if (esAdmin || tiene(u, 'sucursal')) anotar(!sp.ok && sp.codigo !== 'permiso' && sp.codigo !== 'auth', rol, u, 'sucursal.parada', sp.ok ? 'aceptó una parada inexistente' : 'permitido (' + sp.error + ')');
+    else anotar(!sp.ok && sp.codigo === 'permiso', rol, u, 'sucursal.parada', sp.ok ? 'pudo cargar paradas' : 'rechazado');
+    var pend = llamar(tk, 'sucursal.pendientes', {});
+    if (tiene(u, 'repartidor')) {
+      var pAj = (pend.paradas || []).filter(function (p) { return p.sucursal_id !== u.sucursal_id || p.reparto_id; });
+      anotar(pend.ok && !pAj.length && sinSecretos(pend), rol, u, 'sucursal.pendientes', pend.ok ? pend.paradas.length + ' sin tomar' + (pAj.length ? ' · AJENAS' : '') : pend.error);
+    } else anotar(!pend.ok && pend.codigo === 'permiso', rol, u, 'sucursal.pendientes', pend.ok ? 'recibió paradas' : 'rechazado');
 
     // sync sobre un reparto ajeno: tiene que rechazarse
     if (tiene(u, 'repartidor')) {

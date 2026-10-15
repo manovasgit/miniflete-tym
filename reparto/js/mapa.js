@@ -70,7 +70,7 @@ var Mapa = (function () {
       L.polyline(linea, { color: '#c0392b', weight: 5, opacity: 0.8 }).addTo(cl);
     }
     if (base) {
-      L.marker([base.lat, base.lng], { icon: iconoBase(), zIndexOffset: -100 }).addTo(cl).bindPopup('Base');
+      L.marker([base.lat, base.lng], { icon: iconoBase(), zIndexOffset: -100 }).addTo(cl).bindPopup('Sucursal');
       limites.push([base.lat, base.lng]);
     }
     paradas.forEach(function (p, i) {
