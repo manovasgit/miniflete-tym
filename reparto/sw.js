@@ -1,6 +1,6 @@
 // Reparto TyM — service worker
 // Subir la versión ante CUALQUIER cambio (y CONFIG.VERSION en js/config.js a la par).
-const CACHE = 'mtym-reparto-v4.0.0';
+const CACHE = 'mtym-reparto-v4.0.1';
 const PREFIJO = 'mtym-reparto-';
 const ASSETS = [
   './',

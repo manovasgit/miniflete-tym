@@ -254,6 +254,12 @@
       (r.hora_inicio ? '<p class="ayuda">Inicio ' + U.hora(r.hora_inicio) + '</p>' : '') +
       '</section>';
 
+    if (r.fecha !== U.hoy()) {
+      html += '<div class="banner banner-mal">Este reparto es del ' + esc(r.fecha.split('-').reverse().slice(0, 2).join('/')) + '.' +
+        (hayDeSucursal ? ' La sucursal te cargó ' + hayDeSucursal + (hayDeSucursal === 1 ? ' parada' : ' paradas') + ' para hoy.' : '') +
+        ' <button class="btn-link" id="btn-cerrar-viejo">Cerrarlo y empezar el de hoy</button></div>';
+    }
+
     if (r.ruta_vieja && pend.length) {
       html += '<div class="banner">Hay cambios en las paradas. <button class="btn-link" id="btn-recalc-b">Recalcular recorrido</button></div>';
     }
@@ -330,7 +336,7 @@
       // el botón de cerrar está en la tarjeta de la vuelta
     } else if (r.estado === 'en_curso') {
       html += '<button class="btn btn-borde" id="btn-cerrar">Cerrar reparto</button>';
-    } else if (r.estado === 'armado' && lista.length) {
+    } else if (r.estado === 'armado' && (lista.length || r.hora_armado || r.fecha !== U.hoy())) {
       html += '<button class="btn-link txt-mal" id="btn-descartar">Descartar este reparto</button>';
     }
     html += '</div>';
@@ -422,12 +428,29 @@
     if (brb) brb.addEventListener('click', function () { armarRecorrido(); });
     var bce = $('#btn-cerrar');
     if (bce) bce.addEventListener('click', cerrarReparto);
+    var bcv = $('#btn-cerrar-viejo');
+    if (bcv) bcv.addEventListener('click', function () {
+      var rv = Store.reparto();
+      var quedan = pendientes(rv).length;
+      if (!confirm('¿Cerrar el reparto del ' + rv.fecha.split('-').reverse().slice(0, 2).join('/') + '?' +
+        (quedan ? '\n\n' + quedan + ' parada(s) sin marcar van a quedar como pendientes.' : ''))) return;
+      if (!Store.paradasVivas(rv).length) descartar(rv);
+      else {
+        if (rv.estado === 'armado') Store.iniciar(rv);
+        Store.finalizar(rv);
+      }
+      ultimoFinalizado = null;
+      verMapa = false;
+      render();
+      traerDeSucursal();
+    });
     var bd = $('#btn-descartar');
     if (bd) bd.addEventListener('click', function () {
       var deSuc = Store.paradasVivas(r).some(function (p) { return p.origen === 'sucursal'; });
       if (!confirm('¿Descartar el reparto y todas sus paradas?' + (deSuc ? '\n\nLas que cargó la sucursal van a volver a aparecer.' : ''))) return;
       descartar(r);
       render();
+      traerDeSucursal();
     });
 
     var lp = $('#lista-pend');
@@ -747,6 +770,7 @@
     verMapa = false;
     U.toast('Reparto cerrado ✓');
     render();
+    traerDeSucursal();
   }
 
   // ── Formulario de parada (compartido con el panel: js/form-parada.js) ──
@@ -785,6 +809,7 @@
   // arma uno); si la sucursal corrigió o quitó alguna que ya estaba en el celular, se actualiza.
   // Quedan "tomadas" cuando el reparto se arma y viajan al servidor en el sync de siempre.
   var trayendoSuc = false, reintentoSuc = null;
+  var hayDeSucursal = 0;   // paradas de la sucursal esperando mientras hay abierto un reparto viejo
   function traerDeSucursal() {
     if (!usuario || !esRepartidor() || !usuario.sucursal_id || !Api.activa() || trayendoSuc) return Promise.resolve();
     if (Hoja.abierta() || Ubicador.abierto() || ocupado) {
@@ -805,7 +830,19 @@
 
   function aplicarDeSucursal(lista) {
     var r = Store.reparto();
-    if (r && r.fecha !== U.hoy()) return;   // quedó abierto un reparto de otro día: primero se cierra ese
+    if (r && r.fecha !== U.hoy()) {
+      // Quedó abierto un reparto de otro día. Si está vacío no hay nada que perder: se descarta.
+      // Si tiene paradas, el chofer lo cierra desde el cartel de arriba (render).
+      if (Store.paradasVivas(r).length || r.estado === 'en_curso') {
+        hayDeSucursal = lista.filter(function (x) { return !x.eliminada; }).length;
+        render();
+        return;
+      }
+      descartar(r);
+      r = null;
+      render();
+    }
+    hayDeSucursal = 0;
     var locales = {};
     if (r) r.paradas.forEach(function (p) { locales[p.id] = p; });
     var nuevas = [], quitadas = [], cambiadas = [];
