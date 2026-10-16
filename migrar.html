@@ -47,6 +47,8 @@
     </div>
   </section>
 
+  <a id="goNew" href="https://apps.minifletetym.com.ar/migrar.html" hidden style="display:block;text-align:center;font-weight:700;padding:14px;border-radius:9px;background:#1d6b45;color:#fff;text-decoration:none">Ir a la dirección nueva para el paso 2 →</a>
+
   <section class="card" id="imp">
     <span class="where">Paso 2 · en apps.minifletetym.com.ar</span>
     <h2>Cargar la copia</h2>
@@ -84,6 +86,8 @@
   }
   var snap=snapshot(), payload=JSON.stringify({app:'miniflete-tym',origen:location.origin,fecha:new Date().toISOString(),datos:snap});
   var c0=count(snap);
+  var isNew=/minifletetym\.com\.ar$/.test(location.hostname);
+  if(!isNew){$('goNew').hidden=false;$('imp').hidden=true}else{$('exp').hidden=true}
   $('expInfo').textContent=Object.keys(snap).length?'Este dispositivo tiene: '+describe(c0):'En esta dirección no hay datos guardados en este dispositivo.';
   if(!Object.keys(snap).length){$('btnDl').disabled=true;$('btnCopy').disabled=true}
 
