@@ -9,7 +9,7 @@ const GS = (function () {
   var SCOPE        = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/gmail.modify';
   var TOKEN_KEY    = 'mtym_gtoken';
   var STATE_KEY    = 'mtym_oauth_state';
-  var REDIRECT_URI = 'https://manovasgit.github.io/miniflete-tym/unidades/';
+  var REDIRECT_URI = location.origin + location.pathname.replace(/[^/]*$/, ''); // funciona en GitHub Pages y en el dominio propio
   var BASE         = 'https://sheets.googleapis.com/v4/spreadsheets/' + SHEET_ID;
 
   var MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio',
