@@ -1,4 +1,4 @@
-const CACHE = 'mtym-unidades-v37';
+const CACHE = 'mtym-unidades-v38';
 const PREFIJO = 'mtym-unidades-';
 const ASSETS = [
   './',
@@ -12,8 +12,8 @@ const ASSETS = [
   './gmail.js',
   './reparto-link.js',
   './manifest.json',
-  '../icons/icon-192.png',
-  '../icons/icon-512.png',
+  'icons/icon-192.png',
+  'icons/icon-512.png',
 ];
 
 self.addEventListener('install', e => {
