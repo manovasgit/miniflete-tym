@@ -24,15 +24,18 @@ jobs:
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         run: |
-          lftp -e "
-            set ftp:ssl-force true;
-            set ftp:ssl-protect-data true;
-            set ftp:passive-mode true;
-            set net:max-retries 3;
-            set net:timeout 30;
-            mirror --reverse --only-newer --parallel=2 --verbose \
-              --exclude-glob .git* --exclude .git/ --exclude .github/ \
-              --exclude-glob *.md --exclude reparto/apps-script/ \
-              ./ ./;
-            bye
-          " -u "$FTP_USER","$FTP_PASSWORD" "$FTP_SERVER"
+          HOST="${FTP_SERVER#ftp://}"; HOST="${HOST#ftps://}"; HOST="${HOST%%/*}"; HOST="$(echo -n "$HOST" | tr -d '[:space:]')"
+          cat > deploy.lftp <<EOF
+          set ftp:ssl-force true
+          set ftp:ssl-protect-data true
+          set ftp:passive-mode true
+          set ssl:verify-certificate false
+          set net:max-retries 2
+          set net:timeout 30
+          debug 3
+          open -u "$FTP_USER","$FTP_PASSWORD" "$HOST"
+          ls
+          mirror --reverse --only-newer --parallel=2 --verbose --exclude-glob .git* --exclude .git/ --exclude .github/ --exclude-glob *.md --exclude reparto/apps-script/ --exclude-glob deploy.lftp ./ ./
+          bye
+          EOF
+          lftp -f deploy.lftp
