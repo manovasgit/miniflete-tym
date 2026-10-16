@@ -32,10 +32,8 @@ jobs:
           set ssl:verify-certificate false
           set net:max-retries 2
           set net:timeout 30
-          debug 3
           open -u "$FTP_USER","$FTP_PASSWORD" "$HOST"
-          ls
-          mirror --reverse --only-newer --parallel=2 --verbose --exclude-glob .git* --exclude .git/ --exclude .github/ --exclude-glob *.md --exclude reparto/apps-script/ --exclude-glob deploy.lftp ./ ./
+          mirror --reverse --only-newer --parallel=2 --exclude-glob .git* --exclude .git/ --exclude .github/ --exclude-glob *.md --exclude reparto/apps-script/ --exclude-glob deploy.lftp ./ ./
           bye
           EOF
           lftp -f deploy.lftp
