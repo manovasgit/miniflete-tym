@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Pasar datos — Apps Miniflete TyM</title>
+<style>
+  :root{--bg:#f4f5f7;--card:#fff;--fg:#1b1f27;--muted:#5d6676;--line:#dde1e7;--acc:#a10f14;--ok:#1d6b45;--warn:#8a5a00}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{max-width:640px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:16px}
+  h1{font-size:22px;margin:4px 0 0}
+  .lead{color:var(--muted);margin:0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:12px}
+  .card h2{font-size:17px;margin:0}
+  .where{font-size:13px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--muted)}
+  button,.file{font:inherit;font-weight:600;border:0;border-radius:9px;padding:13px 16px;cursor:pointer;background:var(--acc);color:#fff;text-align:center}
+  button.sec{background:#e9ecf1;color:var(--fg)}
+  button:disabled{opacity:.5;cursor:default}
+  textarea{width:100%;min-height:110px;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;border:1px solid var(--line);border-radius:8px;padding:10px;resize:vertical}
+  input[type=file]{font:inherit}
+  .msg{font-size:15px;padding:10px 12px;border-radius:8px;background:#eef6f1;color:var(--ok)}
+  .msg.err{background:#fdf0f0;color:var(--acc)}
+  .msg.warn{background:#fff6e5;color:var(--warn)}
+  ul{margin:0;padding-left:20px}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .row>*{flex:1 1 200px}
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1>Pasar datos a la dirección nueva</h1>
+    <p class="lead">Lo que guardan Unidades, Cotizador, Recibos y Reparto queda en cada dispositivo. Esta página lo copia de la dirección vieja a la nueva. Hacelo en cada dispositivo donde uses las apps.</p>
+  </div>
+
+  <div id="msg" class="msg" hidden></div>
+
+  <section class="card" id="exp">
+    <span class="where">Paso 1 · en la dirección vieja</span>
+    <h2>Sacar una copia</h2>
+    <p class="lead" id="expInfo">Calculando…</p>
+    <div class="row">
+      <button id="btnDl" type="button">Descargar copia</button>
+      <button id="btnCopy" type="button" class="sec">Copiar texto</button>
+    </div>
+  </section>
+
+  <section class="card" id="imp">
+    <span class="where">Paso 2 · en apps.minifletetym.com.ar</span>
+    <h2>Cargar la copia</h2>
+    <p class="lead">Elegí el archivo que descargaste, o pegá el texto copiado.</p>
+    <input type="file" id="file" accept=".json,application/json">
+    <textarea id="paste" placeholder="…o pegá acá el texto copiado"></textarea>
+    <p class="lead" id="impInfo"></p>
+    <button id="btnImp" type="button" disabled>Cargar datos</button>
+    <p class="lead" style="font-size:14px">No se borra nada de lo que ya haya en esta dirección: los viajes se suman y, si alguno ya existe, se deja el que está.</p>
+  </section>
+</main>
+<script>
+(function(){
+  var SKIP=/token|oauth|sesion|session|reparto_instalar/i;
+  var $=function(id){return document.getElementById(id)};
+  function msg(t,kind){var m=$('msg');m.textContent=t;m.className='msg'+(kind?' '+kind:'');m.hidden=false;window.scrollTo(0,0)}
+  function snapshot(){
+    var out={};
+    try{for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(!SKIP.test(k))out[k]=localStorage.getItem(k)}}catch(e){}
+    return out;
+  }
+  function count(data){
+    var c={viajes:0,presupuestos:0,recibos:0,otros:0};
+    Object.keys(data).forEach(function(k){
+      var v;try{v=JSON.parse(data[k])}catch(e){v=null}
+      if(k==='mtym_jobs_v3'&&Array.isArray(v))c.viajes=v.length;
+      else if(k==='tym_presupuestos'&&Array.isArray(v))c.presupuestos=v.length;
+      else if(k==='mtym-recibos-hist'&&Array.isArray(v))c.recibos=v.length;
+      else c.otros++;
+    });
+    return c;
+  }
+  function describe(c){
+    return c.viajes+' viajes de Unidades, '+c.presupuestos+' presupuestos del Cotizador, '+c.recibos+' recibos emitidos y '+c.otros+' ajustes más.';
+  }
+  var snap=snapshot(), payload=JSON.stringify({app:'miniflete-tym',origen:location.origin,fecha:new Date().toISOString(),datos:snap});
+  var c0=count(snap);
+  $('expInfo').textContent=Object.keys(snap).length?'Este dispositivo tiene: '+describe(c0):'En esta dirección no hay datos guardados en este dispositivo.';
+  if(!Object.keys(snap).length){$('btnDl').disabled=true;$('btnCopy').disabled=true}
+
+  $('btnDl').onclick=function(){
+    try{
+      var b=new Blob([payload],{type:'application/json'});var a=document.createElement('a');
+      a.href=URL.createObjectURL(b);a.download='copia-apps-miniflete-'+new Date().toISOString().slice(0,10)+'.json';
+      document.body.appendChild(a);a.click();a.remove();
+      msg('Copia descargada. Ahora abrí apps.minifletetym.com.ar/migrar.html y cargala en el paso 2.');
+    }catch(e){msg('No se pudo descargar. Usá "Copiar texto".','err')}
+  };
+  $('btnCopy').onclick=function(){
+    var done=function(){msg('Texto copiado. Abrí apps.minifletetym.com.ar/migrar.html y pegalo en el paso 2.')};
+    if(navigator.clipboard)navigator.clipboard.writeText(payload).then(done,fallback);else fallback();
+    function fallback(){var t=$('paste');t.value=payload;t.select();try{document.execCommand('copy');done()}catch(e){msg('Seleccioná el texto del cuadro y copialo a mano.','warn')}}
+  };
+
+  var pending=null;
+  function parse(text){
+    try{var o=JSON.parse(text);if(!o||o.app!=='miniflete-tym'||!o.datos)throw 0;return o}catch(e){return null}
+  }
+  function load(text){
+    var o=parse(text);
+    if(!o){pending=null;$('btnImp').disabled=true;$('impInfo').textContent=text.trim()?'Ese texto no es una copia de las apps. Volvé a copiarla desde la dirección vieja.':'';return}
+    pending=o;$('btnImp').disabled=false;
+    $('impInfo').textContent='La copia tiene: '+describe(count(o.datos));
+  }
+  $('file').onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(){load(String(r.result))};r.readAsText(f)};
+  $('paste').oninput=function(){load(this.value)};
+
+  function merge(k,incoming,existing){
+    if(existing==null)return incoming;
+    var a,b;try{a=JSON.parse(incoming);b=JSON.parse(existing)}catch(e){return existing}
+    if(k==='mtym-recibos-next')return JSON.stringify(Math.max(+a||0,+b||0));
+    if(Array.isArray(a)&&Array.isArray(b)){
+      var ids={};b.forEach(function(x){if(x&&x.id!=null)ids[x.id]=1});
+      var extra=a.filter(function(x){return !(x&&x.id!=null&&ids[x.id])&&!(x&&x.n!=null&&b.some(function(y){return y&&y.n===x.n}))});
+      return JSON.stringify(b.concat(extra));
+    }
+    if(a&&b&&typeof a==='object'&&typeof b==='object'&&!Array.isArray(a))return JSON.stringify(Object.assign({},a,b));
+    return existing;
+  }
+  $('btnImp').onclick=function(){
+    if(!pending)return;
+    if(pending.origen===location.origin){msg('Estás en la misma dirección de donde sacaste la copia. Abrí apps.minifletetym.com.ar/migrar.html.','warn');return}
+    var n=0;
+    try{
+      Object.keys(pending.datos).forEach(function(k){
+        var v=merge(k,pending.datos[k],localStorage.getItem(k));
+        if(v!==localStorage.getItem(k)){localStorage.setItem(k,v);n++}
+      });
+      var c=count(snapshot());
+      msg('Listo. Ahora este dispositivo tiene '+describe(c)+' Ya podés abrir las apps.');
+      $('btnImp').disabled=true;
+    }catch(e){msg('No se pudo guardar: '+e.message,'err')}
+  };
+})();
+</script>
+</body>
+</html>
