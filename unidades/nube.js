@@ -276,6 +276,8 @@
       b.disabled = true;
       llamar('web.direccion', {}).then(function (r) {
         if (!r.ok) throw new Error(r.error);
+        // Forminator no acepta la respuesta directa de Google: se pasa por el puente de Ferozo
+        r.url = 'https://apps.minifletetym.com.ar/webhook.php?pedido_web=' + String(r.url).split('pedido_web=')[1];
         var listo = function () {
           msg.style.color = '#166534';
           msg.textContent = 'Copiada. Pegala en WordPress → Forminator → Reserva de Trabajo → Integraciones → Webhook. Es secreta: no la compartas.';
