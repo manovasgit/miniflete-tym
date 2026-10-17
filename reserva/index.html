@@ -360,7 +360,8 @@ function rDatos(c){
     '<div class="bloque"><span class="lbl">¿Necesitás factura?</span><div class="fila">'+
       '<button class="op" data-fa="no" aria-pressed="'+(D.factura==='no')+'">No</button>'+
       '<button class="op" data-fa="c" aria-pressed="'+(D.factura==='c')+'">Sí, Factura C</button></div>'+
-      (D.factura==='c'?'<p class="alerta">La Factura C tiene un valor 20% mayor al presupuestado. Te la enviamos por WhatsApp una vez realizado el servicio.</p>':'')+'</div>'+
+      (D.factura==='c'?'<p class="alerta">La Factura C tiene un valor 20% mayor al presupuestado. Te la enviamos por WhatsApp una vez realizado el servicio.</p>':'')+
+      (D.factura==='no'?'<p class="alerta">Igual se emite un comprobante del servicio.</p>':'')+'</div>'+
     '<div class="bloque"><label class="lbl" for="acl">Aclaraciones <small>(opcional)</small></label>'+
       '<textarea id="acl" placeholder="Ej.: hay que desarmar la cama, el portero recibe hasta las 18, hay que subir por la escalera de servicio…">'+esc(D.aclara)+'</textarea></div>';
   c.querySelector('#nom').oninput=function(){D.nombre=this.value};
