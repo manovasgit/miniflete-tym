@@ -13,7 +13,7 @@
  */
 
 var TZ = 'America/Argentina/Buenos_Aires';
-var VERSION_API = '4.1.0';
+var VERSION_API = '4.2.0';
 var DIAS_SESION_CHOFER = 30;
 var DIAS_SESION_PANEL = 7;
 var DIAS_SESION_UNIDADES = 90;
@@ -75,6 +75,8 @@ var SECRETOS = ['pin_hash', 'pin_salt', 'token_hash'];
 // ════════════════════════════════════════════════════════════════════════
 
 function doPost(e) {
+  // Pedido del formulario de la web (Forminator → webhook): va por otro camino
+  if (e && e.parameter && e.parameter.pedido_web) return salida(manejarPedidoWeb(e));
   var req;
   try {
     req = JSON.parse(e && e.postData ? e.postData.contents : '');
@@ -116,6 +118,7 @@ var ACCIONES = {
   'unidades.asignar':    { escribe: true, roles: ['admin'], fn: accUnidadesAsignar },
   'unidades.estados':    { roles: ['admin'], fn: accUnidadesEstados },
   'unidades.sync':       { escribe: true, roles: ['admin'], fn: accUnidadesSync },
+  'web.direccion':       { escribe: true, roles: ['admin'], fn: accWebDireccion },
   'push.registrar':      { escribe: true, fn: accPushRegistrar },
   'sucursal.parada':     { escribe: true, roles: ['admin', 'sucursal'], fn: accSucursalParada },
   'sucursal.pendientes': { roles: ['repartidor'], fn: accSucursalPendientes },
@@ -1270,6 +1273,162 @@ function accUnidadesSync(ctx, d) {
     trabajos: salT, borrados: salB, gastos: salG,
     total: tT.filtrar(function (f) { return !f.borrado; }).length,
   };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Pedidos de la web (4.2.0): el formulario "Reserva de Trabajo" crea el trabajo en Unidades
+// ════════════════════════════════════════════════════════════════════════
+//
+// Forminator manda cada envío por webhook a  <URL de esta app>?pedido_web=<clave secreta>.
+// La clave vive en las propiedades del script (nunca en el código, que es público).
+// El trabajo entra como "nuevo" en U_Trabajos y les llega a los dispositivos en la próxima
+// sincronización. A los administradores les llega además una notificación.
+
+function claveWeb(crear) {
+  var props = PropertiesService.getScriptProperties();
+  var k = props.getProperty('WEB_SECRETO');
+  if (!k && crear) {
+    k = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
+    props.setProperty('WEB_SECRETO', k);
+  }
+  return k;
+}
+
+// Solo admin: la dirección que se pega en el webhook de Forminator
+function accWebDireccion(ctx) {
+  var base = '';
+  try { base = ScriptApp.getService().getUrl() || ''; } catch (e) { /* nada */ }
+  return { url: base + '?pedido_web=' + claveWeb(true) };
+}
+
+function campoWeb(o, nombres) {
+  for (var i = 0; i < nombres.length; i++) {
+    var v = o[nombres[i]];
+    if (v !== undefined && v !== null && v !== '') {
+      if (typeof v === 'object') v = v.value || v.label || JSON.stringify(v);
+      return String(v).trim();
+    }
+  }
+  return '';
+}
+
+function fechaWeb(s) {
+  s = String(s || '').trim();
+  var m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    var y = m[3].length === 2 ? '20' + m[3] : m[3];
+    return y + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+  }
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+  return '';
+}
+
+function horaWeb(s) {
+  var m = String(s || '').match(/(\d{1,2})[:.](\d{2})/);
+  if (!m) return '09:00';
+  var h = Number(m[1]), mi = Number(m[2]);
+  if (/pm/i.test(s) && h < 12) h += 12;
+  mi = mi < 15 ? 0 : mi < 45 ? 30 : 0;
+  if (Number(m[2]) >= 45) h++;
+  return ('0' + Math.min(h, 23)).slice(-2) + ':' + (mi ? '30' : '00');
+}
+
+function telWeb(s) { return String(s || '').replace(/[^\d+]/g, '').slice(0, 20); }
+
+function pedidoWebATrabajo(o) {
+  var peon = campoWeb(o, ['select-4']).toLowerCase();
+  var pago = campoWeb(o, ['select-1']).toLowerCase();
+  var viaja = campoWeb(o, ['select-2']).toLowerCase();
+  var ahora = Date.now();
+  var t = {
+    canal: 'web', origen: 'formulario_web',
+    fecha: fechaWeb(campoWeb(o, ['date-1'])),
+    hora: horaWeb(campoWeb(o, ['select-3'])),
+    nombre: texto(campoWeb(o, ['name-1']), 120),
+    telefonoRetiro: telWeb(campoWeb(o, ['phone-2'])),
+    telefonoEntrega: telWeb(campoWeb(o, ['phone-1'])),
+    inventario: texto(campoWeb(o, ['textarea-1']), 3000),
+    peones: /escalera/.test(peon) ? 'escaleras' : /no.?se/.test(peon) ? 'no_se'
+      : (peon === 'two' || /ascensor/.test(peon)) ? 'ascensor' : 'sin_peones',
+    calleRetiro: texto(campoWeb(o, ['text-3']), 200),
+    pisoRetiro: texto(campoWeb(o, ['text-5']), 40),
+    barrioRetiro: texto(campoWeb(o, ['text-1']), 80),
+    calleEntrega: texto(campoWeb(o, ['text-4']), 200),
+    pisoEntrega: texto(campoWeb(o, ['text-6']), 40),
+    barrioEntrega: texto(campoWeb(o, ['text-7']), 80),
+    formaPago: (pago === 'two' || /trans/.test(pago)) ? 'transferencia' : 'efectivo',
+    viajaEnUnidad: /movilidad/.test(viaja) ? 'movilidad' : (viaja === 'one' || /^s[ií]/.test(viaja)) ? 'si' : 'no',
+    aclaraciones: texto(campoWeb(o, ['textarea-6']), 2000),
+    estado: 'nuevo', unidad: null, precioCamioneta: 0, adicionales: 0,
+    totalCobrado: 0, gananciaNeta: 0, comprobante: 'no_aplica',
+    creadoEn: ahora, actualizadoEn: ahora,
+  };
+  // ID estable: el número de envío de Forminator, o una huella de los datos. Así, si el
+  // formulario se manda dos veces, no se duplica.
+  var nro = campoWeb(o, ['entry_id', 'entry-id', 'submission_id', 'hidden-1']).replace(/\D/g, '');
+  var huella = sha256([t.fecha, t.hora, normalizar(t.nombre), t.telefonoRetiro, normalizar(t.inventario)].join('|')).slice(0, 16);
+  t.id = 'web_' + (nro ? nro : huella);
+  t.huellaWeb = huella;
+  return t;
+}
+
+function manejarPedidoWeb(e) {
+  var lock = null;
+  try {
+    var clave = claveWeb(false);
+    if (!clave || String(e.parameter.pedido_web) !== clave) return { ok: false, error: 'Clave inválida' };
+    var o = {};
+    var cont = e.postData && e.postData.contents;
+    if (cont) { try { o = JSON.parse(cont); } catch (x) { o = {}; } }
+    Object.keys(e.parameter || {}).forEach(function (k) { if (o[k] === undefined && k !== 'pedido_web') o[k] = e.parameter[k]; });
+    var t = pedidoWebATrabajo(o);
+
+    lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    var db = new Base();
+    var tT = hojaUnidades(db, 'U_Trabajos');
+    registrarPedidoWeb(db, o, t);
+    if (!t.fecha || !t.nombre) return { ok: false, error: 'Faltan datos (fecha o nombre)' };
+    // Ya entró (mismo número de envío, o mismos datos con otro número): no se duplica
+    var repetido = tT.buscar(t.id) || tT.filtrar(function (f) {
+      if (f.borrado || !f.datos || f.datos.indexOf(t.huellaWeb) < 0) return false;
+      try { return JSON.parse(f.datos).huellaWeb === t.huellaWeb; } catch (x) { return false; }
+    })[0];
+    if (repetido) return { ok: true, repetido: true, id: repetido.id };
+
+    var props = PropertiesService.getScriptProperties();
+    var ahora = Math.max(Date.now(), Number(props.getProperty('U_CURSOR') || 0) + 1);
+    guardarVarias(tT, [{ id: t.id, fecha: t.fecha, actualizado_ts: t.actualizadoEn, servidor_ts: ahora,
+      borrado: false, datos: JSON.stringify(t) }]);
+    props.setProperty('U_CURSOR', String(ahora));
+
+    var fechaCorta = t.fecha.slice(8, 10) + '/' + t.fecha.slice(5, 7);
+    db.t('Usuarios').filtrar(function (u) { return u.activo && tiene(u, 'admin'); }).forEach(function (u) {
+      enviarPush(db, u.id, 'Nuevo pedido web', t.nombre + ' · ' + fechaCorta + ' ' + t.hora, { tipo: 'pedido_web', job_id: t.id });
+    });
+    return { ok: true, id: t.id };
+  } catch (err) {
+    console.error(err && err.stack ? err.stack : err);
+    return { ok: false, error: 'Error interno' };
+  } finally {
+    if (lock) try { lock.releaseLock(); } catch (x) { /* nada */ }
+  }
+}
+
+// Últimos pedidos recibidos tal cual llegaron (para revisar si algo no se leyó bien)
+function registrarPedidoWeb(db, crudo, t) {
+  try {
+    var ss = db.ss, nombre = 'Web_Recibidos';
+    var sh = ss.getSheetByName(nombre);
+    if (!sh) {
+      sh = ss.insertSheet(nombre);
+      sh.getRange(1, 1, 1, 4).setValues([['recibido', 'id', 'nombre', 'crudo']]).setFontWeight('bold');
+      sh.hideSheet();
+    }
+    sh.appendRow([ahoraISO(), t.id, t.nombre, JSON.stringify(crudo).slice(0, 45000)]);
+    if (sh.getLastRow() > 500) sh.deleteRows(2, sh.getLastRow() - 500);
+  } catch (x) { /* el registro nunca frena el pedido */ }
 }
 
 function accPushRegistrar(ctx, d) {

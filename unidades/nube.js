@@ -268,7 +268,32 @@
       (hace !== null ? '<p><b>Última vez:</b> ' + (hace < 1 ? 'recién' : 'hace ' + hace + ' min') + '</p>' : '') +
       '<p><b>Usuario:</b> ' + esc(sesion().usuario.nombre_mostrar || sesion().usuario.nombre) + '</p>' +
       '<button class="btn-primary" id="nb-ya">Sincronizar ahora</button>' +
+      '<button class="nb-sec" id="nb-web">Copiar dirección para el formulario de la web</button>' +
+      '<p class="nb-err" id="nb-web-msg" hidden></p>' +
       '<button class="nb-sec nb-cerrar">Cerrar</button>');
+    f.querySelector('#nb-web').addEventListener('click', function () {
+      var b = this, msg = f.querySelector('#nb-web-msg');
+      b.disabled = true;
+      llamar('web.direccion', {}).then(function (r) {
+        if (!r.ok) throw new Error(r.error);
+        var listo = function () {
+          msg.style.color = '#166534';
+          msg.textContent = 'Copiada. Pegala en WordPress → Forminator → Reserva de Trabajo → Integraciones → Webhook. Es secreta: no la compartas.';
+          msg.hidden = false;
+        };
+        var aMano = function () {
+          msg.style.color = '#334155';
+          msg.innerHTML = 'Copiala a mano (es secreta, no la compartas):<br><input readonly style="width:100%;margin-top:6px" value="' + esc(r.url) + '">';
+          msg.hidden = false;
+          var i = msg.querySelector('input'); i.focus(); i.select();
+        };
+        if (navigator.clipboard) navigator.clipboard.writeText(r.url).then(listo, aMano); else aMano();
+      }).catch(function (e) {
+        msg.style.color = '';
+        msg.textContent = 'No se pudo obtener: ' + (e && e.message);
+        msg.hidden = false;
+      }).finally(function () { b.disabled = false; });
+    });
     f.querySelector('#nb-ya').addEventListener('click', function () {
       f.remove();
       sincronizar().then(function (ok) {
