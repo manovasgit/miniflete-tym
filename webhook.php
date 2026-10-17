@@ -31,6 +31,8 @@ if (strlen($cuerpo) > 200000) {
   exit;
 }
 
+set_error_handler(function ($n, $msg) { throw new ErrorException($msg, 0, $n); });
+try {
 $url = $DESTINO . '?pedido_web=' . $clave;
 $codigo = 0;
 $respuesta = '';
@@ -44,7 +46,6 @@ if (function_exists('curl_init')) {
     CURLOPT_RETURNTRANSFER => true,
     // Apps Script procesa el pedido y después redirige a la respuesta: se sigue con GET
     CURLOPT_FOLLOWLOCATION => true,
-    CURLOPT_POSTREDIR => 0,
     CURLOPT_TIMEOUT => 25,
   ));
   $respuesta = curl_exec($ch);
@@ -68,4 +69,8 @@ if (is_array($json)) {
 } else {
   http_response_code($codigo >= 200 && $codigo < 400 ? 200 : 502);
   echo json_encode(array('ok' => $codigo >= 200 && $codigo < 400, 'codigo' => $codigo));
+}
+} catch (Throwable $e) {
+  http_response_code(502);
+  echo json_encode(array('ok' => false, 'error' => 'Puente: ' . $e->getMessage()));
 }
