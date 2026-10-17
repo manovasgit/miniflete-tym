@@ -13,7 +13,7 @@
  */
 
 var TZ = 'America/Argentina/Buenos_Aires';
-var VERSION_API = '4.2.1';
+var VERSION_API = '4.3.0';
 var DIAS_SESION_CHOFER = 30;
 var DIAS_SESION_PANEL = 7;
 var DIAS_SESION_UNIDADES = 90;
@@ -119,6 +119,7 @@ var ACCIONES = {
   'unidades.estados':    { roles: ['admin'], fn: accUnidadesEstados },
   'unidades.sync':       { escribe: true, roles: ['admin'], fn: accUnidadesSync },
   'web.direccion':       { escribe: true, roles: ['admin'], fn: accWebDireccion },
+  'reserva.web':         { publica: true, escribe: true, fn: accReservaWeb },
   'push.registrar':      { escribe: true, fn: accPushRegistrar },
   'sucursal.parada':     { escribe: true, roles: ['admin', 'sucursal'], fn: accSucursalParada },
   'sucursal.pendientes': { roles: ['repartidor'], fn: accSucursalPendientes },
@@ -1389,32 +1390,143 @@ function manejarPedidoWeb(e) {
     lock = LockService.getScriptLock();
     lock.waitLock(20000);
     var db = new Base();
-    var tT = hojaUnidades(db, 'U_Trabajos');
     registrarPedidoWeb(db, o, t);
     if (!t.fecha || !t.nombre) return { ok: false, error: 'Faltan datos (fecha o nombre)' };
-    // Ya entró (mismo número de envío, o mismos datos con otro número): no se duplica
-    var repetido = tT.buscar(t.id) || tT.filtrar(function (f) {
-      if (f.borrado || !f.datos || f.datos.indexOf(t.huellaWeb) < 0) return false;
-      try { return JSON.parse(f.datos).huellaWeb === t.huellaWeb; } catch (x) { return false; }
-    })[0];
-    if (repetido) return { ok: true, repetido: true, id: repetido.id };
-
-    var props = PropertiesService.getScriptProperties();
-    var ahora = Math.max(Date.now(), Number(props.getProperty('U_CURSOR') || 0) + 1);
-    guardarVarias(tT, [{ id: t.id, fecha: t.fecha, actualizado_ts: t.actualizadoEn, servidor_ts: ahora,
-      borrado: false, datos: JSON.stringify(t) }]);
-    props.setProperty('U_CURSOR', String(ahora));
-
-    var fechaCorta = t.fecha.slice(8, 10) + '/' + t.fecha.slice(5, 7);
-    db.t('Usuarios').filtrar(function (u) { return u.activo && tiene(u, 'admin'); }).forEach(function (u) {
-      enviarPush(db, u.id, 'Nuevo pedido web', t.nombre + ' · ' + fechaCorta + ' ' + t.hora, { tipo: 'pedido_web', job_id: t.id });
-    });
+    var g = guardarTrabajoWeb(db, t);
+    if (g.repetido) return { ok: true, repetido: true, id: g.id };
     return { ok: true, id: t.id };
   } catch (err) {
     console.error(err && err.stack ? err.stack : err);
     return { ok: false, error: 'Error interno' };
   } finally {
     if (lock) try { lock.releaseLock(); } catch (x) { /* nada */ }
+  }
+}
+
+// Guarda un trabajo que vino de la web (sin duplicar) y avisa a los administradores
+function guardarTrabajoWeb(db, t) {
+  var tT = hojaUnidades(db, 'U_Trabajos');
+  var repetido = tT.buscar(t.id) || tT.filtrar(function (f) {
+    if (f.borrado || !f.datos || f.datos.indexOf(t.huellaWeb) < 0) return false;
+    try { return JSON.parse(f.datos).huellaWeb === t.huellaWeb; } catch (x) { return false; }
+  })[0];
+  if (repetido) return { repetido: true, id: repetido.id };
+  var props = PropertiesService.getScriptProperties();
+  var ahora = Math.max(Date.now(), Number(props.getProperty('U_CURSOR') || 0) + 1);
+  guardarVarias(tT, [{ id: t.id, fecha: t.fecha, actualizado_ts: t.actualizadoEn, servidor_ts: ahora,
+    borrado: false, datos: JSON.stringify(t) }]);
+  props.setProperty('U_CURSOR', String(ahora));
+  var fechaCorta = t.fecha.slice(8, 10) + '/' + t.fecha.slice(5, 7);
+  db.t('Usuarios').filtrar(function (u) { return u.activo && tiene(u, 'admin'); }).forEach(function (u) {
+    enviarPush(db, u.id, 'Nuevo pedido web', t.nombre + ' · ' + fechaCorta + ' ' + t.hora, { tipo: 'pedido_web', job_id: t.id });
+  });
+  return { repetido: false, id: t.id };
+}
+
+// ── Formulario de reserva propio (apps.minifletetym.com.ar/reserva/) ──────────
+// Público: no lleva clave (lo usa cualquier cliente). Se protege con un campo trampa
+// invisible, un tiempo mínimo de llenado, un límite de envíos y validación de todo.
+var PEONES_WEB = { sin: 'sin_peones', ascensor: 'ascensor', escalera: 'escaleras', no_se: 'no_se' };
+var PEONES_TXT = { sin_peones: 'No, solo traslado', ascensor: 'Sí, por ascensor', escaleras: 'Sí, por escaleras', no_se: 'Sí, no sé si entra en el ascensor' };
+
+function accReservaWeb(ctx, d) {
+  if (d.hp) return { ok: true };                       // bot: se le contesta "ok" y no se guarda nada
+  if (!(Number(d.t) >= 8000)) throw new Falla('Revisá los datos y volvé a enviar.');
+  var cache = CacheService.getScriptCache();
+  var balde = 'rw_' + Math.floor(Date.now() / 600000);
+  var n = Number(cache.get(balde) || 0);
+  if (n >= 15) throw new Falla('Hay muchas reservas en este momento. Probá en unos minutos o escribinos por WhatsApp.');
+  cache.put(balde, String(n + 1), 900);
+
+  var dir = function (o, conTel) {
+    o = o || {};
+    var r = { dir: texto(o.dir, 200), zona: texto(o.zona, 80), piso: texto(o.piso, 40), ref: texto(o.ref, 200) };
+    if (conTel) r.tel = telWeb(o.tel);
+    return r;
+  };
+  var fecha = esFecha(d.fecha) ? d.fecha : '';
+  var hora = /^\d{2}:\d{2}$/.test(String(d.hora || '')) ? d.hora : '';
+  var nombre = texto(d.nombre, 80);
+  var re = dir(d.retiro, true), en = dir(d.entrega, true), pa = d.parada ? dir(d.parada, false) : null;
+  if (!fecha || !hora || !nombre || re.dir.length < 4 || en.dir.length < 4 || re.tel.length < 8 || en.tel.length < 8) {
+    throw new Falla('Faltan datos. Revisá el formulario.');
+  }
+  var peones = PEONES_WEB[d.peones] || 'sin_peones';
+  var items = (Array.isArray(d.items) ? d.items : []).slice(0, 30).map(function (x) { return texto(x, 80); }).filter(Boolean);
+  var inventario = items.join('\n') + (d.detalle ? (items.length ? '\n' : '') + texto(d.detalle, 2000) : '');
+  var personas = Math.min(2, Math.max(1, Number(d.personas) || 1));
+  var viaja = d.viaja === 'si' ? 'si' : d.viaja === 'propia' ? 'movilidad' : 'no';
+  var extras = [];
+  if (d.nocturno) extras.push('Horario nocturno (+30%)' + (d.madrugada ? ' · madrugada' : ''));
+  if (d.empresa) extras.push('Empresa: ' + texto(d.empresa, 80));
+  if (d.factura === 'c') extras.push('Pide FACTURA C (+20%)');
+  if (viaja === 'si') extras.push('Viajan ' + personas + ' persona(s)');
+  if (re.ref) extras.push('Ref. retiro: ' + re.ref);
+  if (pa) extras.push('PARADA: ' + pa.dir + (pa.piso ? ', ' + pa.piso : '') + (pa.zona ? ' (' + pa.zona + ')' : '') + (pa.ref ? ' · Ref.: ' + pa.ref : ''));
+  if (en.ref) extras.push('Ref. entrega: ' + en.ref);
+
+  var fotos = guardarFotosWeb(d.fotos, fecha, nombre);
+  if (fotos.length) extras.push('Fotos: ' + fotos.join(' '));
+  var aclara = texto(d.aclara, 2000);
+
+  var ahora = Date.now();
+  var t = {
+    canal: 'web', origen: 'reserva_web', fecha: fecha, hora: hora, nombre: nombre,
+    telefonoRetiro: re.tel, telefonoEntrega: en.tel, inventario: texto(inventario, 3000), peones: peones,
+    calleRetiro: re.dir, pisoRetiro: re.piso, barrioRetiro: re.zona,
+    calleEntrega: en.dir, pisoEntrega: en.piso, barrioEntrega: en.zona,
+    formaPago: d.pago === 'transferencia' ? 'transferencia' : 'efectivo', viajaEnUnidad: viaja,
+    aclaraciones: extras.concat(aclara ? [aclara] : []).join('\n'),
+    estado: 'nuevo', unidad: null, precioCamioneta: 0, adicionales: 0, totalCobrado: 0, gananciaNeta: 0,
+    comprobante: d.factura === 'c' ? 'factura_c' : 'no_aplica',
+    empresa: texto(d.empresa, 80), factura: d.factura === 'c' ? 'c' : 'no', parada: pa, fotos: fotos,
+    personas: viaja === 'si' ? personas : 0, refRetiro: re.ref, refEntrega: en.ref, nocturno: !!d.nocturno,
+    creadoEn: ahora, actualizadoEn: ahora,
+  };
+  t.huellaWeb = sha256([t.fecha, t.hora, normalizar(t.nombre), t.telefonoRetiro, normalizar(t.inventario)].join('|')).slice(0, 16);
+  t.id = 'web_' + t.huellaWeb;
+
+  var g = guardarTrabajoWeb(ctx.db, t);
+  if (!g.repetido) mailReservaWeb(t, items, d);
+  return { id: g.id };
+}
+
+// Hasta 3 fotos (JPEG ya achicadas en el celular) a una carpeta privada del Drive de Miniflete
+function guardarFotosWeb(fotos, fecha, nombre) {
+  if (!Array.isArray(fotos) || !fotos.length) return [];
+  try {
+    var it = DriveApp.getFoldersByName('Reservas web - fotos');
+    var carpeta = it.hasNext() ? it.next() : DriveApp.createFolder('Reservas web - fotos');
+    return fotos.slice(0, 3).map(function (f, i) {
+      var b64 = String(f && f.base64 || '').replace(/^data:image\/\w+;base64,/, '');
+      if (!b64 || b64.length > 1500000) return '';
+      var blob = Utilities.newBlob(Utilities.base64Decode(b64), 'image/jpeg', fecha + ' ' + normalizar(nombre).slice(0, 30) + ' ' + (i + 1) + '.jpg');
+      return carpeta.createFile(blob).getUrl();
+    }).filter(Boolean);
+  } catch (e) {
+    console.error('Fotos: ' + (e && e.message));
+    return [];
+  }
+}
+
+// Mismo formato que el mail de Forminator, así la importación desde Gmail lo sigue leyendo
+function mailReservaWeb(t, items, d) {
+  try {
+    var dd = t.fecha.split('-');
+    var bloque = function (calle, piso, zona, tel) { return [calle, piso || '-', zona || '-', tel].join('\n'); };
+    var cuerpo = [
+      '*' + dd[2] + '-' + dd[1] + '-' + dd[0] + '*', '*' + t.hora + '*', t.nombre,
+      t.inventario || '-',
+      'Peones ' + PEONES_TXT[t.peones],
+      'Dir retiro:', bloque(t.calleRetiro, t.pisoRetiro, t.barrioRetiro, t.telefonoRetiro),
+      'Dir entrega:', bloque(t.calleEntrega, t.pisoEntrega, t.barrioEntrega, t.telefonoEntrega),
+      'Pago ' + (t.formaPago === 'transferencia' ? 'Transferencia' : 'Efectivo'),
+      'Viaja ' + (t.viajaEnUnidad === 'si' ? 'Sí' : t.viajaEnUnidad === 'movilidad' ? 'Tengo movilidad propia' : 'No'),
+      t.aclaraciones || '',
+    ].join('\n');
+    MailApp.sendEmail(Session.getEffectiveUser().getEmail(), 'Reserva de Trabajo – ' + t.nombre + ' (' + dd[2] + '/' + dd[1] + ' ' + t.hora + ')', cuerpo);
+  } catch (e) {
+    console.error('Mail reserva: ' + (e && e.message));
   }
 }
 
