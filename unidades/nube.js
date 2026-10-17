@@ -72,6 +72,10 @@
   function marcarInicial() {
     if (leer(K_PRIMERA, false)) return;
     _ensureLoaded();
+    // Trabajos repetidos con el mismo ID (pasaba con versiones viejas): queda uno solo
+    var vistos = {}, antes = _jobs.length;
+    _jobs = _jobs.filter(function (j) { if (!j || !j.id || vistos[j.id]) return false; vistos[j.id] = true; return true; });
+    if (_jobs.length !== antes) _saveJobsLocal();
     var p = pend();
     _jobs.forEach(function (j) { if (j && j.id && !p.jobs[j.id]) p.jobs[j.id] = j.actualizadoEn || j.creadoEn || 1; });
     Object.keys(_gastos).forEach(function (k) { if (!p.gastos[k]) p.gastos[k] = 1; });

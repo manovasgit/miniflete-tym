@@ -1,4 +1,4 @@
-const CACHE = 'mtym-unidades-v39';
+const CACHE = 'mtym-unidades-v40';
 const PREFIJO = 'mtym-unidades-';
 const ASSETS = [
   './',
