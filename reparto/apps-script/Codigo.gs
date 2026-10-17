@@ -13,9 +13,10 @@
  */
 
 var TZ = 'America/Argentina/Buenos_Aires';
-var VERSION_API = '4.0.0';
+var VERSION_API = '4.1.0';
 var DIAS_SESION_CHOFER = 30;
 var DIAS_SESION_PANEL = 7;
+var DIAS_SESION_UNIDADES = 90;
 var MAX_INTENTOS = 5;
 var MIN_BLOQUEO = 15;
 
@@ -47,12 +48,16 @@ var HOJAS = {
   Sesiones: ['token_hash', 'usuario_id', 'creado', 'expira', 'ultimo_uso', 'dispositivo'],
   // Celulares que aceptaron notificaciones push (etapa 3)
   Dispositivos: ['token', 'usuario_id', 'creado', 'actualizado', 'agente'],
+  // App Unidades (4.1.0): los trabajos viven acá para que celu y compu vean lo mismo.
+  // 'datos' guarda el trabajo completo en JSON; las otras columnas son para buscar y ordenar.
+  U_Trabajos: ['id', 'fecha', 'actualizado_ts', 'servidor_ts', 'borrado', 'datos'],
+  U_Gastos: ['clave', 'monto', 'actualizado_ts', 'servidor_ts'],
 };
 
 var NUMEROS = ['lat', 'lng', 'orden', 'km_estimados', 'min_estimados', 'total_paradas', 'entregadas',
   'no_entregadas', 'intentos_fallidos', 'actualizado_ts', 'base_lat', 'base_lng',
-  'lat_retiro', 'lng_retiro', 'lat_entrega', 'lng_entrega'];
-var BOOLEANOS = ['activo', 'eliminada', 'eliminado', 'aviso_horario'];
+  'lat_retiro', 'lng_retiro', 'lat_entrega', 'lng_entrega', 'servidor_ts', 'monto'];
+var BOOLEANOS = ['activo', 'eliminada', 'eliminado', 'aviso_horario', 'borrado'];
 
 var ROLES = ['admin', 'repartidor', 'fletero', 'sucursal', 'duenio'];
 var ESTADOS_REPARTO = ['armado', 'en_curso', 'finalizado'];
@@ -110,6 +115,7 @@ var ACCIONES = {
   'admin.flete':         { escribe: true, roles: ['admin'], fn: accAdminFlete },
   'unidades.asignar':    { escribe: true, roles: ['admin'], fn: accUnidadesAsignar },
   'unidades.estados':    { roles: ['admin'], fn: accUnidadesEstados },
+  'unidades.sync':       { escribe: true, roles: ['admin'], fn: accUnidadesSync },
   'push.registrar':      { escribe: true, fn: accPushRegistrar },
   'sucursal.parada':     { escribe: true, roles: ['admin', 'sucursal'], fn: accSucursalParada },
   'sucursal.pendientes': { roles: ['repartidor'], fn: accSucursalPendientes },
@@ -398,7 +404,8 @@ function accLogin(ctx, d) {
   }
 
   var soloPanel = !tiene(u, 'repartidor') && !tiene(u, 'fletero');
-  var dias = d.app === 'panel' || soloPanel ? DIAS_SESION_PANEL : DIAS_SESION_CHOFER;
+  var dias = d.app === 'unidades' ? DIAS_SESION_UNIDADES
+    : d.app === 'panel' || soloPanel ? DIAS_SESION_PANEL : DIAS_SESION_CHOFER;
   var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
   var ses = db.t('Sesiones');
   if (ses.todas().length > 300) limpiarSesionesVencidas(db);
@@ -1126,6 +1133,144 @@ function accUnidadesEstados(ctx, d) {
 // Apagadas hasta que se cargue la cuenta de servicio de Firebase con el menú
 // "Configurar notificaciones". La clave queda en las propiedades del script, nunca en el código.
 // ════════════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════════════
+// App Unidades: sincronización entre dispositivos (4.1.0)
+// ════════════════════════════════════════════════════════════════════════
+//
+// El celu/la compu manda lo que cambió desde la última vez y recibe lo que cambiaron los otros.
+//   datos: { desde: <servidor_ts de la última vez, 0 la primera>,
+//            trabajos: [ {trabajo completo, con id y actualizadoEn}, ... ],
+//            borrados: [ { id, ts }, ... ],
+//            gastos:   [ { clave, monto, ts }, ... ] }
+//   respuesta: { cursor, trabajos: [...], borrados: [ids], gastos: [{clave, monto, ts}], total }
+// Regla de conflicto: gana la modificación más nueva (actualizadoEn del trabajo).
+// Cada trabajo se identifica por su id: nunca por el número de fila.
+
+var MAX_U_POR_PEDIDO = 2000;
+
+function hojaUnidades(db, nombre) {
+  var ss = db.ss;
+  if (!ss.getSheetByName(nombre)) {
+    var sh = ss.insertSheet(nombre);
+    var cols = HOJAS[nombre];
+    sh.getRange(1, 1, sh.getMaxRows(), cols.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, cols.length).setValues([cols]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return db.t(nombre);
+}
+
+// Escribe varias filas: las existentes una por una, las nuevas todas juntas al final
+function guardarVarias(t, objs) {
+  if (!objs.length) return;
+  t.todas();
+  var cols = t.cols, nuevas = [];
+  objs.forEach(function (o) {
+    if (t._idx[o[cols[0]]]) t.guardar(o); else nuevas.push(o);
+  });
+  if (!nuevas.length) return;
+  var r = t.sh.getLastRow() + 1;
+  var faltan = r + nuevas.length - 1 - t.sh.getMaxRows();
+  if (faltan > 0) t.sh.insertRowsAfter(t.sh.getMaxRows(), faltan + 200);
+  var celdas = nuevas.map(function (o) { return cols.map(function (c) { return aCelda(o[c]); }); });
+  t.sh.getRange(r, 1, celdas.length, cols.length).setNumberFormat('@').setValues(celdas);
+  nuevas.forEach(function (o, i) {
+    var g = { _fila: r + i };
+    cols.forEach(function (c, j) { g[c] = desdeCelda(c, celdas[i][j]); });
+    t._filas.push(g);
+    t._idx[g[cols[0]]] = g;
+  });
+}
+
+function idTrabajo(v) {
+  var s = String(v || '');
+  if (!/^[A-Za-z0-9_\-]{3,80}$/.test(s)) throw new Falla('Trabajo con id inválido');
+  return s;
+}
+function tsValido(v) {
+  var n = Number(v);
+  return isFinite(n) && n > 0 ? Math.round(n) : 0;
+}
+
+function accUnidadesSync(ctx, d) {
+  var db = ctx.db;
+  var tT = hojaUnidades(db, 'U_Trabajos');
+  var tG = hojaUnidades(db, 'U_Gastos');
+  var desde = tsValido(d.desde);
+  var trabajos = Array.isArray(d.trabajos) ? d.trabajos : [];
+  var borrados = Array.isArray(d.borrados) ? d.borrados : [];
+  var gastos = Array.isArray(d.gastos) ? d.gastos : [];
+  if (trabajos.length + borrados.length + gastos.length > MAX_U_POR_PEDIDO) {
+    throw new Falla('Demasiados cambios juntos. Probá de nuevo.');
+  }
+
+  // El cursor siempre avanza, aunque dos pedidos caigan en el mismo milisegundo
+  var props = PropertiesService.getScriptProperties();
+  var ultimo = Number(props.getProperty('U_CURSOR') || 0);
+  var ahora = Math.max(Date.now(), ultimo + 1);
+
+  var escribirT = [], escribirG = [], aplicados = 0, ignorados = 0;
+
+  trabajos.forEach(function (j) {
+    if (!j || typeof j !== 'object') return;
+    var id = idTrabajo(j.id);
+    var ts = tsValido(j.actualizadoEn) || 1;
+    var json = JSON.stringify(j);
+    if (json.length > 45000) throw new Falla('El trabajo ' + id + ' es demasiado grande');
+    var ex = tT.buscar(id);
+    if (ex && ex.actualizado_ts > ts) { ignorados++; return; }
+    escribirT.push({ id: id, fecha: esFecha(j.fecha) ? j.fecha : '', actualizado_ts: ts,
+      servidor_ts: ahora, borrado: false, datos: json });
+    aplicados++;
+  });
+
+  borrados.forEach(function (b) {
+    if (!b || typeof b !== 'object') return;
+    var id = idTrabajo(b.id);
+    var ts = tsValido(b.ts) || 1;
+    var ex = tT.buscar(id);
+    if (ex && ex.actualizado_ts > ts) { ignorados++; return; }
+    escribirT.push({ id: id, fecha: ex ? ex.fecha : '', actualizado_ts: ts,
+      servidor_ts: ahora, borrado: true, datos: '' });
+    aplicados++;
+  });
+
+  gastos.forEach(function (g) {
+    if (!g || typeof g !== 'object') return;
+    var clave = String(g.clave || '');
+    if (!/^\d{4}-\d{2}-\d{2}__[A-Za-z0-9_\-]{1,40}$/.test(clave)) throw new Falla('Gasto con clave inválida');
+    var monto = Number(g.monto);
+    if (!isFinite(monto) || monto < 0) monto = 0;
+    var ts = tsValido(g.ts) || 1;
+    var ex = tG.buscar(clave);
+    if (ex && ex.actualizado_ts > ts) { ignorados++; return; }
+    escribirG.push({ clave: clave, monto: monto, actualizado_ts: ts, servidor_ts: ahora });
+    aplicados++;
+  });
+
+  guardarVarias(tT, escribirT);
+  guardarVarias(tG, escribirG);
+  props.setProperty('U_CURSOR', String(ahora));
+
+  // Lo que cambió desde la última vez (incluye lo recién escrito: así el dispositivo
+  // recibe la versión que quedó guardada, también cuando su cambio perdió contra uno más nuevo)
+  var salT = [], salB = [], salG = [];
+  tT.todas().forEach(function (f) {
+    if (!(f.servidor_ts > desde)) return;
+    if (f.borrado) { salB.push(f.id); return; }
+    try { salT.push(JSON.parse(f.datos)); } catch (e) { /* fila rota: se saltea */ }
+  });
+  tG.todas().forEach(function (f) {
+    if (f.servidor_ts > desde) salG.push({ clave: f.clave, monto: f.monto || 0, ts: f.actualizado_ts });
+  });
+
+  return {
+    cursor: ahora, aplicados: aplicados, ignorados: ignorados,
+    trabajos: salT, borrados: salB, gastos: salG,
+    total: tT.filtrar(function (f) { return !f.borrado; }).length,
+  };
+}
 
 function accPushRegistrar(ctx, d) {
   var tok = texto(d.token, 400);

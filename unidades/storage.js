@@ -106,7 +106,8 @@ function saveGastos(fechaStr, unidadId, amount) {
 function getAllGastos() { _ensureLoaded(); return Object.assign({}, _gastos); }
 
 // ── Google Sheets: exportación manual (bajo demanda, un trabajo a la vez) ──
-// No hay sync automático: la app nunca sube ni trae nada del Sheet por sí sola.
+// La planilla de contabilidad solo recibe lo que se exporta a mano.
+// La sincronización entre dispositivos va aparte, por nube.js (Reparto TyM).
 // _rowMap guarda, por job id, en qué hoja (mes) y en qué fila quedó exportado,
 // para que exportar el mismo día dos veces actualice en vez de duplicar.
 // { [jobId]: { sheet: 'Julio 2026', row: 15 } }
@@ -117,17 +118,19 @@ function exportJobToSheet(job) {
   _ensureLoaded();
   var gastos    = getGastos(job.fecha, job.unidad);
   var sheetName = GS.monthSheetName(job.fecha);
-  var entry     = _rowMap[job.id];
-
-  if (entry && entry.sheet === sheetName) {
-    return GS.updateJob(entry.row, job, gastos, sheetName);
-  }
-
-  return GS.appendJob(job, gastos, sheetName).then(function (resp) {
-    if (resp && resp.updates && resp.updates.updatedRange) {
-      var m = resp.updates.updatedRange.match(/(\d+)$/);
-      if (m) { _rowMap[job.id] = { sheet: sheetName, row: Number(m[1]) }; _saveRowMap(); }
+  // Siempre se busca la fila por el ID del trabajo: el número de fila guardado en el
+  // dispositivo puede estar viejo si otro dispositivo agregó o borró filas (eso pisaba datos).
+  return GS.findRowByJobId(job.id, sheetName).then(function (row) {
+    if (row) {
+      _rowMap[job.id] = { sheet: sheetName, row: row }; _saveRowMap();
+      return GS.updateJob(row, job, gastos, sheetName);
     }
+    return GS.appendJob(job, gastos, sheetName).then(function (resp) {
+      if (resp && resp.updates && resp.updates.updatedRange) {
+        var m = resp.updates.updatedRange.match(/(\d+)$/);
+        if (m) { _rowMap[job.id] = { sheet: sheetName, row: Number(m[1]) }; _saveRowMap(); }
+      }
+    });
   });
 }
 
@@ -140,10 +143,9 @@ function syncDeleteFromSheet(job) {
   delete _rowMap[job.id];
   _saveRowMap();
 
+  // Igual que al exportar: la fila se busca por ID, nunca por el número guardado
   var sheetName = (entry && entry.sheet) || GS.monthSheetName(job.fecha);
-  var lookup = entry ? Promise.resolve(entry.row) : GS.findRowByJobId(job.id, sheetName);
-
-  return lookup.then(function (row) {
+  return GS.findRowByJobId(job.id, sheetName).then(function (row) {
     if (row) return GS.deleteJob(row, sheetName);
   }).catch(function (e) {
     console.warn('Sheet delete failed:', e.message);

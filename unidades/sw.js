@@ -1,4 +1,4 @@
-const CACHE = 'mtym-unidades-v38';
+const CACHE = 'mtym-unidades-v39';
 const PREFIJO = 'mtym-unidades-';
 const ASSETS = [
   './',
@@ -11,6 +11,7 @@ const ASSETS = [
   './sheets.js',
   './gmail.js',
   './reparto-link.js',
+  './nube.js',
   './manifest.json',
   'icons/icon-192.png',
   'icons/icon-512.png',

@@ -37,6 +37,12 @@
     if (justConnected) showToast('Conectado a Google Sheets ✓');
   });
 
+  // Para nube.js: redibujar cuando llegan cambios de otro dispositivo (nunca con una ventana abierta)
+  window.UnidadesUI = {
+    refrescar: function () { if (!S.overlay) render(); },
+    toast: function (m) { showToast(m); },
+  };
+
   function registerSW() {
     if (!('serviceWorker' in navigator)) return;
     var myScope = new URL('./', window.location.href).href;
