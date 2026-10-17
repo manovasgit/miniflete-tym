@@ -25,6 +25,16 @@ if ($cuerpo === '' || stripos($tipo, 'json') === false) {
   if (empty($datos) && $cuerpo !== '') parse_str($cuerpo, $datos);
   $cuerpo = json_encode($datos, JSON_UNESCAPED_UNICODE);
 }
+// Forminator manda los campos como date_1, name_1…; el servidor los espera como date-1, name-1…
+$dec = json_decode($cuerpo, true);
+if (is_array($dec)) {
+  $norm = array();
+  foreach ($dec as $k => $v) {
+    $k2 = preg_match('/^(date|select|name|textarea|text|phone|hidden|email|number|radio|checkbox|address)_\d+$/', $k) ? str_replace('_', '-', $k) : $k;
+    $norm[$k2] = $v;
+  }
+  $cuerpo = json_encode($norm, JSON_UNESCAPED_UNICODE);
+}
 if (strlen($cuerpo) > 200000) {
   http_response_code(413);
   echo '{"ok":false,"error":"Pedido demasiado grande"}';

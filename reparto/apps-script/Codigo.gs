@@ -13,7 +13,7 @@
  */
 
 var TZ = 'America/Argentina/Buenos_Aires';
-var VERSION_API = '4.2.0';
+var VERSION_API = '4.2.1';
 var DIAS_SESION_CHOFER = 30;
 var DIAS_SESION_PANEL = 7;
 var DIAS_SESION_UNIDADES = 90;
@@ -1304,6 +1304,8 @@ function accWebDireccion(ctx) {
 function campoWeb(o, nombres) {
   for (var i = 0; i < nombres.length; i++) {
     var v = o[nombres[i]];
+    // Forminator manda los campos con guion bajo (date_1) en vez de guion (date-1)
+    if (v === undefined) v = o[String(nombres[i]).replace(/-/g, '_')];
     if (v !== undefined && v !== null && v !== '') {
       if (typeof v === 'object') v = v.value || v.label || JSON.stringify(v);
       return String(v).trim();
