@@ -92,6 +92,10 @@ input:focus,textarea:focus,.op:focus-visible,button:focus-visible{outline:2px so
 body{margin:0}
 .trampa{position:absolute;left:-5000px;width:1px;height:1px;overflow:hidden}
 .cargando{opacity:.6;pointer-events:none}
+/* Dentro de la web (iframe): sin barra fija, tema claro, alto automático */
+.emb body{margin:0;background:transparent}
+.emb .demo{padding-block:8px 16px}
+.emb .pie{position:static;background:none;padding:14px max(16px,env(safe-area-inset-left,0px)) 6px}
 </style>
 </head><body>
 <div class="demo">
@@ -447,6 +451,16 @@ document.getElementById('sig').onclick=function(){
 };
 document.getElementById('atras').onclick=function(){if(editandoDesde!==null){paso=editandoDesde;editandoDesde=null}else if(paso>0)paso--;pintar();window.scrollTo(0,0)};
 pintar();
+})();
+</script>
+<script>
+(function(){
+  if(window.self===window.top)return;
+  var r=document.documentElement;r.classList.add('emb');r.setAttribute('data-theme','light');
+  function alto(){parent.postMessage({mtymReserva:'alto',h:Math.ceil(document.body.getBoundingClientRect().height)},'*')}
+  window.addEventListener('load',alto);
+  if(window.ResizeObserver)new ResizeObserver(alto).observe(document.body);else setInterval(alto,500);
+  window.scrollTo=function(){parent.postMessage({mtymReserva:'arriba'},'*')};
 })();
 </script>
 </body></html>
