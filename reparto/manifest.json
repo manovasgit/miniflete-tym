@@ -2,7 +2,7 @@
   "name": "Reparto TyM",
   "short_name": "Reparto",
   "description": "Repartos y fletes – Miniflete TyM",
-  "id": "./app",
+  "id": "./reparto-tym",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -11,7 +11,16 @@
   "orientation": "portrait",
   "lang": "es-AR",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
   ]
 }
