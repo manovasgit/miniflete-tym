@@ -13,7 +13,7 @@
  */
 
 var TZ = 'America/Argentina/Buenos_Aires';
-var VERSION_API = '4.3.0';
+var VERSION_API = '4.4.0';
 var DIAS_SESION_CHOFER = 30;
 var DIAS_SESION_PANEL = 7;
 var DIAS_SESION_UNIDADES = 90;
@@ -44,7 +44,9 @@ var HOJAS = {
     'fecha', 'hora', 'nota', 'estado', 'motivo',
     'hora_asignado', 'hora_en_camino', 'hora_cargando', 'hora_en_viaje',
     'hora_realizado', 'hora_no_realizado', 'hora_cancelado',
-    'creado_por', 'actualizado_ts'],
+    'creado_por', 'actualizado_ts',
+    // 4.4.0: cobro y teléfono de entrega (vienen de Unidades)
+    'monto_camioneta', 'monto_peones', 'monto_adicionales', 'pago', 'telefono_entrega'],
   Sesiones: ['token_hash', 'usuario_id', 'creado', 'expira', 'ultimo_uso', 'dispositivo'],
   // Celulares que aceptaron notificaciones push (etapa 3)
   Dispositivos: ['token', 'usuario_id', 'creado', 'actualizado', 'agente'],
@@ -932,7 +934,8 @@ var CAMPOS_FLETE_CHOFER = ['estado', 'motivo', 'hora_en_camino', 'hora_cargando'
 var CAMPOS_FLETE_VISIBLES = ['id', 'fletero_id', 'cliente', 'telefono', 'dir_retiro', 'loc_retiro', 'lat_retiro', 'lng_retiro',
   'dir_entrega', 'loc_entrega', 'lat_entrega', 'lng_entrega', 'fecha', 'hora', 'nota', 'estado', 'motivo',
   'hora_asignado', 'hora_en_camino', 'hora_cargando', 'hora_en_viaje', 'hora_realizado', 'hora_no_realizado',
-  'hora_cancelado', 'actualizado_ts'];
+  'hora_cancelado', 'actualizado_ts',
+  'monto_camioneta', 'monto_peones', 'monto_adicionales', 'pago', 'telefono_entrega'];
 
 function fleteroValido(db, id) {
   var f = id ? db.t('Usuarios').buscar(id) : null;
@@ -1046,6 +1049,12 @@ function guardarFlete(db, admin, d, origen) {
     f.hora = texto(d.hora, 5);
     f.nota = texto(d.nota, 2000);
     if (d.unidades_job_id) f.unidades_job_id = texto(d.unidades_job_id, 80);
+    // Cobro: solo si viene (el panel no lo manda y no tiene que borrarlo)
+    ['monto_camioneta', 'monto_peones', 'monto_adicionales'].forEach(function (c) {
+      if (d[c] !== undefined) { var n = Math.round(Number(d[c]) || 0); f[c] = n > 0 ? n : ''; }
+    });
+    if (d.pago !== undefined) f.pago = texto(d.pago, 30);
+    if (d.telefono_entrega !== undefined) f.telefono_entrega = texto(d.telefono_entrega, 40);
 
     var resumen = cliente + ' · ' + fechaCorta(f.fecha) + (f.hora ? ' ' + f.hora : '');
     if (!viejo || viejo.estado === 'cancelado') {
@@ -1109,6 +1118,9 @@ function accUnidadesAsignar(ctx, d) {
     dir_entrega: job.dirEntrega, loc_entrega: job.locEntrega,
     fecha: job.fecha, hora: job.hora, nota: nota,
     fletero_id: d.fletero_id,
+    monto_camioneta: job.precioCamioneta || 0, monto_peones: job.costoPeones || 0,
+    monto_adicionales: job.adicionales || 0, pago: job.formaPago || '',
+    telefono_entrega: job.telefonoEntrega || '',
   }, 'unidades');
   return { flete: fletePublico(db, f, true) };
 }

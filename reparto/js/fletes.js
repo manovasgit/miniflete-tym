@@ -87,8 +87,24 @@ var Fletes = (function () {
 
   function direccion(dir, loc) { return [dir, loc].filter(Boolean).join(', '); }
 
+  // ── Lista de fletes ───────────────────────────────────────────────────
+  // Cada flete es una tarjeta corta con "Cargar flete": al tocarlo se abre la pantalla del flete
+  // armada como la del reparto (paradas en orden, navegar, cobro, contacto y mapa).
+  var abiertoId = Store.leer('flete_abierto', null);
+  var verMapaFl = false;
+  var mapaFl = null;
+  var geoPedido = {};
+
+  function abrir(id) { abiertoId = id; verMapaFl = false; Store.escribir('flete_abierto', id); render(contenedor); window.scrollTo(0, 0); }
+  function cerrar() { abiertoId = null; Store.escribir('flete_abierto', null); render(contenedor); window.scrollTo(0, 0); }
+
   function render(c) {
     contenedor = c;
+    if (mapaFl) { try { mapaFl.m.remove(); } catch (e) { /* ya no estaba */ } mapaFl = null; }
+    var abierto = abiertoId && buscar(abiertoId);
+    if (abierto) { detalle(c, abierto); return; }
+    if (abiertoId) { abiertoId = null; Store.escribir('flete_abierto', null); }
+
     var l = lista();
     var abiertos = l.filter(function (f) { return ABIERTOS.indexOf(f.estado) >= 0; })
       .sort(function (a, b) { return (a.fecha + (a.hora || '99')).localeCompare(b.fecha + (b.hora || '99')); });
@@ -107,56 +123,208 @@ var Fletes = (function () {
       if (verTerminados) html += cerrados.map(tarjeta).join('');
     }
     c.innerHTML = html;
-    conectar(c);
+    var b = $('#fl-actualizar', c);
+    if (b) b.addEventListener('click', function () { U.toast('Buscando…'); refrescar(); });
+    var vc = $('#fl-ver-cerrados', c);
+    if (vc) vc.addEventListener('click', function () { verTerminados = !verTerminados; render(contenedor); });
+    $$('[data-abrir]', c).forEach(function (bt) { bt.addEventListener('click', function () { abrir(bt.dataset.abrir); }); });
   }
 
   function tarjeta(f) {
     var abierto = ABIERTOS.indexOf(f.estado) >= 0;
-    var sig = SIGUIENTE[f.estado];
-    var horas = ['asignado', 'en_camino', 'cargando', 'en_viaje', 'realizado', 'no_realizado', 'cancelado']
-      .filter(function (e) { return f['hora_' + e]; })
-      .map(function (e) { return '<li>' + ESTADOS[e] + ': ' + U.hora(f['hora_' + e]) + '</li>'; }).join('');
-    var tel = String(f.telefono || '').replace(/[^\d+]/g, '');
-    var wa = tel ? 'https://wa.me/' + (tel.indexOf('54') === 0 ? tel : '549' + tel.replace(/^0/, '').replace(/^15/, '')) : '';
+    var tot = total(f);
     return '<section class="tarjeta flete est-fl-' + f.estado + '" data-id="' + esc(f.id) + '">' +
       '<div class="fl-cab"><span class="fl-cuando">' + esc(cuando(f)) + '</span>' +
       '<span class="chip chip-fl-' + f.estado + '">' + ESTADOS[f.estado] + '</span></div>' +
       '<h3 class="fl-cliente">' + esc(f.cliente) + '</h3>' +
       (f.estado === 'cancelado' ? '<p class="txt-mal">Cancelado por el administrador' + (f.motivo ? ': ' + esc(f.motivo) : '') + '</p>' : '') +
       (f.estado === 'no_realizado' && f.motivo ? '<p class="txt-mal">' + esc(f.motivo) + '</p>' : '') +
-      '<div class="fl-tramo"><div class="fl-tramo-tit">Retiro</div><div class="fl-dir">' + esc(direccion(f.dir_retiro, f.loc_retiro)) + '</div>' +
-      (abierto ? '<button class="btn btn-sec btn-chico" data-nav="retiro">➤ Navegar al retiro</button>' : '') + '</div>' +
-      '<div class="fl-tramo"><div class="fl-tramo-tit">Entrega</div><div class="fl-dir">' + esc(direccion(f.dir_entrega, f.loc_entrega)) + '</div>' +
-      (abierto ? '<button class="btn btn-sec btn-chico" data-nav="entrega">➤ Navegar a la entrega</button>' : '') + '</div>' +
-      (f.telefono ? '<div class="fl-tel">📞 ' + esc(f.telefono) +
-        (abierto ? ' <a class="btn-mini-link" href="tel:' + esc(tel) + '">Llamar</a>' + (wa ? ' <a class="btn-mini-link" href="' + esc(wa) + '" target="_blank" rel="noopener">WhatsApp</a>' : '') : '') + '</div>' : '') +
-      (f.nota ? '<div class="nota">' + esc(f.nota).replace(/\n/g, '<br>') + '</div>' : '') +
-      (sig ? '<button class="btn btn-pri btn-grande" data-paso="' + sig[0] + '">' + sig[1] + '</button>' : '') +
-      (abierto ? '<button class="btn btn-borde" data-no>✗ No se pudo hacer</button>' : '') +
-      (ANTERIOR[f.estado] !== undefined && f.estado !== 'cancelado' ? '<button class="btn-link chico" data-atras>Me equivoqué: volver al paso anterior</button>' : '') +
-      (horas ? '<ul class="horas">' + horas + '</ul>' : '') +
+      '<div class="fl-ruta">' + esc(f.loc_retiro || f.dir_retiro) + ' → ' + esc(f.loc_entrega || f.dir_entrega) + '</div>' +
+      (tot ? '<div class="chips"><span class="chip chip-cobro">' + plata(tot) + '</span>' + (f.pago ? '<span class="chip chip-pago">' + esc(PAGO[f.pago] || f.pago) + '</span>' : '') + '</div>' : '') +
+      '<button class="btn ' + (abierto ? 'btn-pri btn-grande' : 'btn-sec') + '" data-abrir="' + esc(f.id) + '">' +
+      (!abierto ? 'Ver detalle' : f.estado === 'asignado' ? '▶ Cargar flete' : '▶ Seguir con el flete') + '</button>' +
       '</section>';
   }
 
-  function conectar(c) {
-    var b = $('#fl-actualizar', c);
-    if (b) b.addEventListener('click', function () { U.toast('Buscando…'); refrescar(); });
-    var vc = $('#fl-ver-cerrados', c);
-    if (vc) vc.addEventListener('click', function () { verTerminados = !verTerminados; render(contenedor); });
-    $$('.flete', c).forEach(function (card) {
-      var id = card.dataset.id;
-      $$('[data-nav]', card).forEach(function (bt) { bt.addEventListener('click', function () { navegar(id, bt.dataset.nav); }); });
-      $$('[data-paso]', card).forEach(function (bt) { bt.addEventListener('click', function () { marcar(id, bt.dataset.paso); }); });
-      $$('[data-no]', card).forEach(function (bt) { bt.addEventListener('click', function () { noRealizado(id); }); });
-      $$('[data-atras]', card).forEach(function (bt) {
-        bt.addEventListener('click', function () {
-          var f = buscar(id);
-          var ant = f && (f.estado === 'no_realizado' ? ultimoAbierto(f) : ANTERIOR[f.estado]);
-          if (!ant) return;
-          if (!confirm('¿Volver a "' + ESTADOS[ant] + '"?')) return;
-          marcar(id, ant, '', true);
-        });
+  // ── Pantalla del flete (como la del reparto) ──────────────────────────
+  var PAGO = { efectivo: 'Efectivo', transferencia: 'Transferencia' };
+
+  function num(v) { var n = Number(v); return isFinite(n) && n > 0 ? Math.round(n) : 0; }
+  function total(f) { return num(f.monto_camioneta) + num(f.monto_peones) + num(f.monto_adicionales); }
+  function plata(n) { return '$ ' + Math.round(n).toLocaleString('es-AR'); }
+
+  // Teléfono → links. Argentinos con el formato de siempre; los de afuera (+ y otro país) tal cual.
+  function linkTel(t) { return U.linkTel(t); }
+  function linkWa(t, msg) {
+    var wa = U.linkWhatsApp(t, msg);
+    if (wa) return wa;
+    var d = String(t || '').replace(/\D/g, '');
+    return /^\s*(\+|00)/.test(String(t || '')) && d.length >= 8 ? 'https://wa.me/' + d.replace(/^00/, '') + (msg ? '?text=' + encodeURIComponent(msg) : '') : '';
+  }
+  function contactoFl(tel, msg) {
+    if (!tel) return '';
+    var wa = linkWa(tel, msg);
+    return '<div class="fila-2 contacto">' +
+      '<a class="btn btn-sec" href="' + esc(linkTel(tel)) + '">📞 Llamar</a>' +
+      (wa ? '<a class="btn btn-wa" href="' + esc(wa) + '" target="_blank" rel="noopener">WhatsApp</a>' : '<span></span>') +
+      '</div>';
+  }
+  function mensaje(f, tramo) {
+    var yo = usuario ? usuario.nombre_mostrar || usuario.nombre : '';
+    var dir = tramo === 'entrega' ? f.dir_entrega : f.dir_retiro;
+    return 'Hola, ¿cómo estás? ' + (yo ? 'Soy ' + yo + ', de' : 'Te escribo de') + ' Miniflete TyM. ' +
+      (tramo === 'entrega' ? 'Estoy yendo con la carga a ' : 'Estoy yendo para ') + dir + '. ¡Gracias!';
+  }
+
+  // Las paradas del flete en orden. El estado de cada una sale del estado del flete.
+  function geoDe(f, tramo) {
+    var la = f['lat_' + tramo], ln = f['lng_' + tramo];
+    if (la !== '' && la != null && ln !== '' && ln != null) return { lat: +la, lng: +ln };
+    var g = (Store.leer('fletes_geo', {})[f.id] || {})[tramo];
+    return g ? { lat: g.lat, lng: g.lng } : { lat: null, lng: null };
+  }
+  function paradasDe(f) {
+    var gr = geoDe(f, 'retiro'), ge = geoDe(f, 'entrega');
+    var hechoRetiro = ['en_viaje', 'realizado'].indexOf(f.estado) >= 0;
+    var p = [
+      { id: 'retiro', tit: 'Retiro', dir: f.dir_retiro, loc: f.loc_retiro, tel: f.telefono, lat: gr.lat, lng: gr.lng,
+        hecho: hechoRetiro, hora: f.hora_en_viaje },
+      { id: 'entrega', tit: 'Entrega', dir: f.dir_entrega, loc: f.loc_entrega, tel: f.telefono_entrega && f.telefono_entrega !== f.telefono ? f.telefono_entrega : '',
+        lat: ge.lat, lng: ge.lng, hecho: f.estado === 'realizado', hora: f.hora_realizado },
+    ];
+    return p;
+  }
+
+  function detalle(c, f) {
+    var abierto = ABIERTOS.indexOf(f.estado) >= 0;
+    var paradas = paradasDe(f);
+    var prox = !abierto ? null : f.estado === 'en_viaje' ? paradas[1] : paradas[0];
+    var sig = SIGUIENTE[f.estado];
+    var app = Store.navApp();
+    var tot = total(f);
+    var html = '<button class="btn-link fl-volver" id="fl-volver">← Mis fletes</button>';
+
+    // Cliente, cuándo y contacto
+    html += '<section class="tarjeta resumen">' +
+      '<div class="fl-cab"><span class="fl-cuando">' + esc(cuando(f)) + '</span>' +
+      '<span class="chip chip-fl-' + f.estado + '">' + ESTADOS[f.estado] + '</span></div>' +
+      '<h2 class="fl-cliente">' + esc(f.cliente) + '</h2>' +
+      (f.telefono ? '<div class="parada-sub">📞 ' + esc(f.telefono) + '</div>' + (abierto ? contactoFl(f.telefono, mensaje(f, prox ? prox.id : 'retiro')) : '') : '') +
+      (f.estado === 'cancelado' ? '<p class="txt-mal">Cancelado por el administrador' + (f.motivo ? ': ' + esc(f.motivo) : '') + '</p>' : '') +
+      (f.estado === 'no_realizado' && f.motivo ? '<p class="txt-mal">' + esc(f.motivo) + '</p>' : '') +
+      '</section>';
+
+    // Cobro
+    if (tot || f.pago) {
+      var items = [['Camioneta', num(f.monto_camioneta)], ['Peones', num(f.monto_peones)], ['Adicionales', num(f.monto_adicionales)]]
+        .filter(function (x) { return x[1]; });
+      html += '<section class="tarjeta fl-cobro">' +
+        '<div class="prox-tit">A cobrar</div>' +
+        '<div class="fl-total">' + (tot ? plata(tot) : 'Sin monto cargado') + '</div>' +
+        (f.pago ? '<div class="chips"><span class="chip chip-pago">' + esc(PAGO[f.pago] || f.pago) + '</span></div>' : '') +
+        (items.length > 1 ? '<ul class="fl-items">' + items.map(function (x) { return '<li><span>' + x[0] + '</span><span>' + plata(x[1]) + '</span></li>'; }).join('') + '</ul>' : '') +
+        '</section>';
+    }
+
+    // Próxima parada, como en el reparto
+    if (prox) {
+      html += '<section class="tarjeta proxima">' +
+        '<div class="prox-tit">' + (f.estado === 'asignado' ? 'Primero' : f.estado === 'cargando' ? 'Cargando en' : 'En camino a') + ' · ' + prox.tit + '</div>' +
+        '<div class="prox-dir"><span class="num">' + (prox.id === 'retiro' ? 1 : 2) + '</span> ' + esc(prox.dir) + '</div>' +
+        (prox.loc ? '<div class="prox-sub">' + esc(prox.loc) + '</div>' : '') +
+        (prox.id === 'entrega' && prox.tel ? '<div class="prox-sub">Recibe: 📞 ' + esc(prox.tel) + '</div>' + contactoFl(prox.tel, mensaje(f, 'entrega')) : '') +
+        (f.estado !== 'cargando' ? '<button class="btn btn-pri btn-grande" data-nav="' + prox.id + '">➤ Navegar' + (app ? ' (' + (app === 'waze' ? 'Waze' : 'Google Maps') + ')' : '') + '</button>' : '') +
+        (sig ? '<button class="btn ' + (f.estado === 'cargando' ? 'btn-pri' : 'btn-ok') + ' btn-grande" data-paso="' + sig[0] + '">' + sig[1] + '</button>' : '') +
+        '<button class="btn btn-borde" data-no>✗ No se pudo hacer</button>' +
+        '</section>';
+    }
+
+    // Lista / mapa de las paradas
+    html += '<div class="tabs">' +
+      '<button class="tab' + (verMapaFl ? '' : ' activa') + '" data-tabfl="lista">Lista</button>' +
+      '<button class="tab' + (verMapaFl ? ' activa' : '') + '" data-tabfl="mapa">Mapa</button>' +
+      '</div>';
+    if (verMapaFl) {
+      html += '<div class="panel-mapa"><div id="fl-mapa" class="mapa"></div></div>';
+    } else {
+      html += '<ol class="paradas">' + paradas.map(function (p, i) {
+        var est = p.hecho ? 'entregado' : prox && prox.id === p.id ? 'en_camino' : 'pendiente';
+        return '<li class="parada est-' + est + '">' +
+          '<span class="num">' + (i + 1) + '</span>' +
+          '<div class="parada-txt">' +
+          '<div class="parada-dir">' + esc(p.dir) + '</div>' +
+          '<div class="parada-sub">' + esc([p.tit, p.loc, p.tel ? '📞 ' + p.tel : ''].filter(Boolean).join(' · ')) + '</div>' +
+          (abierto && !p.hecho ? '<button class="btn btn-sec btn-chico" data-nav="' + p.id + '">➤ Navegar</button>' : '') +
+          '</div>' +
+          '<div class="parada-der"><span class="chip chip-p-' + est + '">' + (p.hecho ? 'Hecho' : est === 'en_camino' ? 'Ahora' : 'Pendiente') + '</span>' +
+          (p.hecho && p.hora ? '<span class="hora">' + U.hora(p.hora) + '</span>' : '') + '</div></li>';
+      }).join('') + '</ol>';
+    }
+
+    // Comanda completa y horarios
+    if (f.nota) html += '<details class="tarjeta fl-comanda"><summary>Ver comanda completa</summary><div class="nota">' + esc(f.nota).replace(/\n/g, '<br>') + '</div></details>';
+    var horas = ['asignado', 'en_camino', 'cargando', 'en_viaje', 'realizado', 'no_realizado', 'cancelado']
+      .filter(function (e) { return f['hora_' + e]; })
+      .map(function (e) { return '<li>' + ESTADOS[e] + ': ' + U.hora(f['hora_' + e]) + '</li>'; }).join('');
+    if (horas) html += '<ul class="horas">' + horas + '</ul>';
+    if (app) html += '<button class="btn-link" id="fl-cambiar-nav">Cambiar app de navegación</button>';
+    if (ANTERIOR[f.estado] !== undefined && f.estado !== 'cancelado' && f.estado !== 'asignado') {
+      html += '<button class="btn-link chico" data-atras>Me equivoqué: volver al paso anterior</button>';
+    }
+
+    c.innerHTML = html;
+    var id = f.id;
+    $('#fl-volver', c).addEventListener('click', cerrar);
+    $$('[data-tabfl]', c).forEach(function (b) { b.addEventListener('click', function () { verMapaFl = b.dataset.tabfl === 'mapa'; render(contenedor); }); });
+    $$('[data-nav]', c).forEach(function (bt) { bt.addEventListener('click', function () { navegar(id, bt.dataset.nav); }); });
+    $$('[data-paso]', c).forEach(function (bt) { bt.addEventListener('click', function () { marcar(id, bt.dataset.paso); }); });
+    $$('[data-no]', c).forEach(function (bt) { bt.addEventListener('click', function () { noRealizado(id); }); });
+    var cn = $('#fl-cambiar-nav', c);
+    if (cn) cn.addEventListener('click', function () { Store.guardarNavApp(Store.navApp() === 'waze' ? 'google' : 'waze'); U.toast('Navegación: ' + (Store.navApp() === 'waze' ? 'Waze' : 'Google Maps')); render(contenedor); });
+    $$('[data-atras]', c).forEach(function (bt) {
+      bt.addEventListener('click', function () {
+        var fl = buscar(id);
+        var ant = fl && (fl.estado === 'no_realizado' ? ultimoAbierto(fl) : ANTERIOR[fl.estado]);
+        if (!ant) return;
+        if (!confirm('¿Volver a "' + ESTADOS[ant] + '"?')) return;
+        marcar(id, ant, '', true);
       });
+    });
+    if (verMapaFl) dibujarMapaFl(f);
+  }
+
+  // Mapa: si el flete no trae coordenadas, se ubican las direcciones (y quedan guardadas en el celu)
+  function dibujarMapaFl(f) {
+    var el = $('#fl-mapa');
+    if (!el || !window.L) return;
+    mapaFl = new Mapa.Recorrido(el);
+    mapaFl.ajustar();
+    var ps = paradasDe(f);
+    function pintar() {
+      if (!mapaFl) return;
+      mapaFl.dibujar(null, ps.map(function (p) {
+        return { id: p.id, lat: p.lat, lng: p.lng, direccion: p.tit + ': ' + p.dir, estado: p.hecho ? 'entregado' : 'pendiente' };
+      }), null, null);
+    }
+    var faltan = ps.filter(function (p) { return p.lat == null; });
+    if (!faltan.length || geoPedido[f.id]) { setTimeout(pintar, 80); return; }
+    geoPedido[f.id] = true;
+    Promise.all(faltan.map(function (p) {
+      return Routing.geocodificar(p.dir, p.loc).then(function (r) { return r && r[0] ? r[0] : null; }).catch(function () { return null; });
+    })).then(function (res) {
+      var geo = Store.leer('fletes_geo', {});
+      var g = geo[f.id] || {};
+      faltan.forEach(function (p, i) {
+        if (!res[i]) return;
+        p.lat = res[i].lat; p.lng = res[i].lng;
+        g[p.id] = { lat: res[i].lat, lng: res[i].lng };
+      });
+      geo[f.id] = g;
+      var ids = lista().map(function (x) { return x.id; });
+      Object.keys(geo).forEach(function (k) { if (ids.indexOf(k) < 0) delete geo[k]; });
+      Store.escribir('fletes_geo', geo);
+      if (faltan.some(function (p) { return p.lat == null; })) U.toast('Alguna dirección no se pudo ubicar en el mapa');
+      pintar();
     });
   }
 
@@ -170,7 +338,7 @@ var Fletes = (function () {
     var f = buscar(id);
     if (!f) return;
     var app = Store.navApp() || 'google';
-    var lat = f['lat_' + tramo], lng = f['lng_' + tramo];
+    var g = geoDe(f, tramo), lat = g.lat, lng = g.lng;
     var url = lat != null && lng != null
       ? Routing.linkNavegacion(lat, lng, app)
       : Routing.linkNavegacionTexto(direccion(f['dir_' + tramo], f['loc_' + tramo]), app);

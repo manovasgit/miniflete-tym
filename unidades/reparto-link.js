@@ -274,6 +274,8 @@
       dirEntrega: dir(j.calleEntrega, j.pisoEntrega), locEntrega: j.barrioEntrega,
       inventario: j.inventario, peones: PEONES[j.peones] || j.peones,
       viaja: VIAJA[j.viajaEnUnidad] || j.viajaEnUnidad, aclaraciones: j.aclaraciones,
+      precioCamioneta: Number(j.precioCamioneta) || 0, costoPeones: Number(j.costoPeones) || 0,
+      adicionales: Number(j.adicionales) || 0, formaPago: j.formaPago || '',
     };
   }
 
